@@ -231,6 +231,35 @@ pub fn matches(s1: &str, s2: &str) -> bool {
     }
 }
 
+#[inline(always)]
+pub fn nonwild_prefix(s: &str) -> (&str, &str) {
+    match s.find('*') {
+        Some(idx) => {
+            if idx > 0 && s.as_bytes()[idx - 1] == b'/' {
+                s.split_at(idx - 1)
+            } else {
+                s.split_at(idx)
+            }
+        }
+        None => (s, ""),
+    }
+}
+
+#[inline(always)]
+pub fn fst_chunk(key_expr: &str) -> (&str, &str) {
+    if let Some(stripped_key_expr) = key_expr.strip_prefix('/') {
+        match stripped_key_expr.find('/') {
+            Some(idx) => (&key_expr[0..(idx + 1)], &key_expr[(idx + 1)..]),
+            None => (key_expr, ""),
+        }
+    } else {
+        match key_expr.find('/') {
+            Some(idx) => (&key_expr[0..(idx)], &key_expr[(idx)..]),
+            None => (key_expr, ""),
+        }
+    }
+}
+
 /// A zenoh **resource** is represented by a pair composed by a **key** and a
 /// **value**, such as, ```(/car/telemetry/speed, 320)```.  A **resource key**
 /// is an arbitrary array of characters, with the exclusion of the symbols

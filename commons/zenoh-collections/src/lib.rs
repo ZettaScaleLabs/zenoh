@@ -29,3 +29,102 @@ pub(crate) use stack_buffer::*;
 
 pub mod timer;
 pub use timer::*;
+
+pub use petgraph::visit::Walker;
+pub use petgraph::visit::WalkerIter;
+
+pub use vector_map;
+
+pub struct VecWalker<T> {
+    idx: usize,
+    phantom: std::marker::PhantomData<T>,
+}
+
+impl<T> VecWalker<T> {
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            idx: 0,
+            phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T> Default for VecWalker<T> {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'a, T> Walker<&'a Vec<T>> for VecWalker<T> {
+    type Item = &'a T;
+
+    #[inline]
+    fn walk_next(&mut self, context: &'a Vec<T>) -> Option<Self::Item> {
+        if self.idx >= context.len() {
+            None
+        } else {
+            let result = Some(&context[self.idx]);
+            self.idx += 1;
+            result
+        }
+    }
+}
+
+pub struct VecMapWalker<K, V> {
+    index: usize,
+    _marker: std::marker::PhantomData<(K, V)>,
+}
+
+impl<K, V> VecMapWalker<K, V> {
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            index: 0,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<K, V> Default for VecMapWalker<K, V> {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+use vector_map::VecMap;
+impl<'a, K, V> Walker<&'a VecMap<K, V>> for VecMapWalker<K, V> {
+    type Item = (&'a K, &'a V);
+
+    #[inline]
+    fn walk_next(&mut self, context: &'a VecMap<K, V>) -> Option<Self::Item> {
+        let res = context.iter().nth(self.index);
+        self.index += 1;
+        res
+    }
+}
+
+impl<'a, K, V> Walker<&'a mut VecMap<K, V>> for VecMapWalker<K, V> {
+    type Item = (&'a K, &'a mut V);
+
+    #[inline]
+    fn walk_next(&mut self, context: &'a mut VecMap<K, V>) -> Option<Self::Item> {
+        let res = context.iter_mut().nth(self.index);
+        self.index += 1;
+        res
+    }
+}
+
+use vector_map::set::VecSet;
+impl<'a, K> Walker<&'a VecSet<K>> for VecMapWalker<K, ()> {
+    type Item = &'a K;
+
+    #[inline]
+    fn walk_next(&mut self, context: &'a VecSet<K>) -> Option<Self::Item> {
+        let res = context.iter().nth(self.index);
+        self.index += 1;
+        res
+    }
+}

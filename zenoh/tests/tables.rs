@@ -37,18 +37,8 @@ fn base_test() {
     );
     let primitives = Arc::new(DummyPrimitives::new());
     let face = tables.open_face(PeerId::new(0, [0; 16]), WhatAmI::Client, primitives);
-    register_expr(
-        &mut tables,
-        &mut face.upgrade().unwrap(),
-        1,
-        &"/one/two/three".into(),
-    );
-    register_expr(
-        &mut tables,
-        &mut face.upgrade().unwrap(),
-        2,
-        &"/one/deux/trois".into(),
-    );
+    tables.register_expr(&face.upgrade().unwrap(), 1, &"/one/two/three".into());
+    tables.register_expr(&face.upgrade().unwrap(), 2, &"/one/deux/trois".into());
 
     let sub_info = SubInfo {
         reliability: Reliability::Reliable,
@@ -57,12 +47,12 @@ fn base_test() {
     };
     declare_client_subscription(
         &mut tables,
-        &mut face.upgrade().unwrap(),
+        &face.upgrade().unwrap(),
         &KeyExpr::from(1).with_suffix("/four/five"),
         &sub_info,
     );
 
-    Tables::print(&tables);
+    // Tables::print(&tables);
 }
 
 #[test]
@@ -131,22 +121,17 @@ fn match_test() {
     let primitives = Arc::new(DummyPrimitives::new());
     let face = tables.open_face(PeerId::new(0, [0; 16]), WhatAmI::Client, primitives);
     for (i, key_expr) in key_exprs.iter().enumerate() {
-        register_expr(
-            &mut tables,
-            &mut face.upgrade().unwrap(),
+        tables.register_expr(
+            &face.upgrade().unwrap(),
             i.try_into().unwrap(),
             &(*key_expr).into(),
         );
     }
 
     for key_expr1 in key_exprs.iter() {
-        let res_matches = Resource::get_matches(&tables, key_expr1);
+        let matches = tables._matches(key_expr1);
         for key_expr2 in key_exprs.iter() {
-            if res_matches
-                .iter()
-                .map(|m| m.upgrade().unwrap().expr())
-                .any(|x| x == **key_expr2)
-            {
+            if matches.iter().any(|x| x == *key_expr2) {
                 assert!(intersect(key_expr1, key_expr2));
             } else {
                 assert!(!intersect(key_expr1, key_expr2));
@@ -169,63 +154,33 @@ fn clean_test() {
     assert!(face0.upgrade().is_some());
 
     // --------------
-    register_expr(
-        &mut tables,
-        &mut face0.upgrade().unwrap(),
-        1,
-        &"/todrop1".into(),
-    );
-    let optres1 =
-        Resource::get_resource(tables._get_root(), "/todrop1").map(|res| Arc::downgrade(&res));
-    assert!(optres1.is_some());
-    let res1 = optres1.unwrap();
-    assert!(res1.upgrade().is_some());
+    tables.register_expr(&face0.upgrade().unwrap(), 1, &"/todrop1".into());
+    assert!(tables._contains_res("/todrop1"));
 
-    register_expr(
-        &mut tables,
-        &mut face0.upgrade().unwrap(),
-        2,
-        &"/todrop1/todrop11".into(),
-    );
-    let optres2 = Resource::get_resource(tables._get_root(), "/todrop1/todrop11")
-        .map(|res| Arc::downgrade(&res));
-    assert!(optres2.is_some());
-    let res2 = optres2.unwrap();
-    assert!(res2.upgrade().is_some());
+    tables.register_expr(&face0.upgrade().unwrap(), 2, &"/todrop1/todrop11".into());
+    assert!(tables._contains_res("/todrop1/todrop11"));
 
-    register_expr(&mut tables, &mut face0.upgrade().unwrap(), 3, &"/**".into());
-    let optres3 = Resource::get_resource(tables._get_root(), "/**").map(|res| Arc::downgrade(&res));
-    assert!(optres3.is_some());
-    let res3 = optres3.unwrap();
-    assert!(res3.upgrade().is_some());
+    tables.register_expr(&face0.upgrade().unwrap(), 3, &"/**".into());
+    assert!(tables._contains_res("/**"));
 
-    unregister_expr(&mut tables, &mut face0.upgrade().unwrap(), 1);
-    assert!(res1.upgrade().is_some());
-    assert!(res2.upgrade().is_some());
-    assert!(res3.upgrade().is_some());
+    tables.unregister_expr(&face0.upgrade().unwrap(), 1);
+    assert!(tables._contains_res("/todrop1"));
+    assert!(tables._contains_res("/todrop1/todrop11"));
+    assert!(tables._contains_res("/**"));
 
-    unregister_expr(&mut tables, &mut face0.upgrade().unwrap(), 2);
-    assert!(res1.upgrade().is_none());
-    assert!(res2.upgrade().is_none());
-    assert!(res3.upgrade().is_some());
+    tables.unregister_expr(&face0.upgrade().unwrap(), 2);
+    assert!(!tables._contains_res("/todrop1"));
+    assert!(!tables._contains_res("/todrop1/todrop11"));
+    assert!(tables._contains_res("/**"));
 
-    unregister_expr(&mut tables, &mut face0.upgrade().unwrap(), 3);
-    assert!(res1.upgrade().is_none());
-    assert!(res2.upgrade().is_none());
-    assert!(res3.upgrade().is_none());
+    tables.unregister_expr(&face0.upgrade().unwrap(), 3);
+    assert!(!tables._contains_res("/todrop1"));
+    assert!(!tables._contains_res("/todrop1/todrop11"));
+    assert!(!tables._contains_res("/**"));
 
     // --------------
-    register_expr(
-        &mut tables,
-        &mut face0.upgrade().unwrap(),
-        1,
-        &"/todrop1".into(),
-    );
-    let optres1 =
-        Resource::get_resource(tables._get_root(), "/todrop1").map(|res| Arc::downgrade(&res));
-    assert!(optres1.is_some());
-    let res1 = optres1.unwrap();
-    assert!(res1.upgrade().is_some());
+    tables.register_expr(&face0.upgrade().unwrap(), 1, &"/todrop1".into());
+    assert!(tables._contains_res("/todrop1"));
 
     let sub_info = SubInfo {
         reliability: Reliability::Reliable,
@@ -235,128 +190,83 @@ fn clean_test() {
 
     declare_client_subscription(
         &mut tables,
-        &mut face0.upgrade().unwrap(),
+        &face0.upgrade().unwrap(),
         &"/todrop1/todrop11".into(),
         &sub_info,
     );
-    let optres2 = Resource::get_resource(tables._get_root(), "/todrop1/todrop11")
-        .map(|res| Arc::downgrade(&res));
-    assert!(optres2.is_some());
-    let res2 = optres2.unwrap();
-    assert!(res2.upgrade().is_some());
+    assert!(tables._contains_res("/todrop1/todrop11"));
 
     declare_client_subscription(
         &mut tables,
-        &mut face0.upgrade().unwrap(),
+        &face0.upgrade().unwrap(),
         &KeyExpr::from(1).with_suffix("/todrop12"),
         &sub_info,
     );
-    let optres3 = Resource::get_resource(tables._get_root(), "/todrop1/todrop12")
-        .map(|res| Arc::downgrade(&res));
-    assert!(optres3.is_some());
-    let res3 = optres3.unwrap();
-    assert!(res3.upgrade().is_some());
+    assert!(tables._contains_res("/todrop1/todrop12"));
 
     forget_client_subscription(
         &mut tables,
-        &mut face0.upgrade().unwrap(),
+        &face0.upgrade().unwrap(),
         &KeyExpr::from(1).with_suffix("/todrop12"),
     );
-    assert!(res1.upgrade().is_some());
-    assert!(res2.upgrade().is_some());
-    assert!(res3.upgrade().is_none());
+    assert!(tables._contains_res("/todrop1"));
+    assert!(tables._contains_res("/todrop1/todrop11"));
+    assert!(!tables._contains_res("/todrop1/todrop12"));
 
     forget_client_subscription(
         &mut tables,
-        &mut face0.upgrade().unwrap(),
+        &face0.upgrade().unwrap(),
         &"/todrop1/todrop11".into(),
     );
-    assert!(res1.upgrade().is_some());
-    assert!(res2.upgrade().is_none());
-    assert!(res3.upgrade().is_none());
+    assert!(tables._contains_res("/todrop1"));
+    assert!(!tables._contains_res("/todrop1/todrop11"));
+    assert!(!tables._contains_res("/todrop1/todrop12"));
 
-    unregister_expr(&mut tables, &mut face0.upgrade().unwrap(), 1);
-    assert!(res1.upgrade().is_none());
-    assert!(res2.upgrade().is_none());
-    assert!(res3.upgrade().is_none());
+    tables.unregister_expr(&face0.upgrade().unwrap(), 1);
+    assert!(!tables._contains_res("/todrop1"));
+    assert!(!tables._contains_res("/todrop1/todrop11"));
+    assert!(!tables._contains_res("/todrop1/todrop12"));
 
     // --------------
-    register_expr(
-        &mut tables,
-        &mut face0.upgrade().unwrap(),
-        2,
-        &"/todrop3".into(),
-    );
+    tables.register_expr(&face0.upgrade().unwrap(), 2, &"/todrop3".into());
     declare_client_subscription(
         &mut tables,
-        &mut face0.upgrade().unwrap(),
+        &face0.upgrade().unwrap(),
         &"/todrop3".into(),
         &sub_info,
     );
-    let optres1 =
-        Resource::get_resource(tables._get_root(), "/todrop3").map(|res| Arc::downgrade(&res));
-    assert!(optres1.is_some());
-    let res1 = optres1.unwrap();
-    assert!(res1.upgrade().is_some());
+    assert!(tables._contains_res("/todrop3"));
 
-    forget_client_subscription(
-        &mut tables,
-        &mut face0.upgrade().unwrap(),
-        &"/todrop3".into(),
-    );
-    assert!(res1.upgrade().is_some());
+    forget_client_subscription(&mut tables, &face0.upgrade().unwrap(), &"/todrop3".into());
+    assert!(tables._contains_res("/todrop3"));
 
-    unregister_expr(&mut tables, &mut face0.upgrade().unwrap(), 2);
-    assert!(res1.upgrade().is_none());
+    tables.unregister_expr(&face0.upgrade().unwrap(), 2);
+    assert!(!tables._contains_res("/todrop3"));
 
     // --------------
-    register_expr(
-        &mut tables,
-        &mut face0.upgrade().unwrap(),
-        3,
-        &"/todrop4".into(),
-    );
-    register_expr(
-        &mut tables,
-        &mut face0.upgrade().unwrap(),
-        4,
-        &"/todrop5".into(),
-    );
+    tables.register_expr(&face0.upgrade().unwrap(), 3, &"/todrop4".into());
+    tables.register_expr(&face0.upgrade().unwrap(), 4, &"/todrop5".into());
     declare_client_subscription(
         &mut tables,
-        &mut face0.upgrade().unwrap(),
+        &face0.upgrade().unwrap(),
         &"/todrop5".into(),
         &sub_info,
     );
     declare_client_subscription(
         &mut tables,
-        &mut face0.upgrade().unwrap(),
+        &face0.upgrade().unwrap(),
         &"/todrop6".into(),
         &sub_info,
     );
-
-    let optres1 =
-        Resource::get_resource(tables._get_root(), "/todrop4").map(|res| Arc::downgrade(&res));
-    assert!(optres1.is_some());
-    let res1 = optres1.unwrap();
-    let optres2 =
-        Resource::get_resource(tables._get_root(), "/todrop5").map(|res| Arc::downgrade(&res));
-    assert!(optres2.is_some());
-    let res2 = optres2.unwrap();
-    let optres3 =
-        Resource::get_resource(tables._get_root(), "/todrop6").map(|res| Arc::downgrade(&res));
-    assert!(optres3.is_some());
-    let res3 = optres3.unwrap();
-
-    assert!(res1.upgrade().is_some());
-    assert!(res2.upgrade().is_some());
-    assert!(res3.upgrade().is_some());
+    assert!(tables._contains_res("/todrop4"));
+    assert!(tables._contains_res("/todrop5"));
+    assert!(tables._contains_res("/todrop6"));
 
     tables.close_face(&face0);
     assert!(face0.upgrade().is_none());
-    assert!(res1.upgrade().is_none());
-    assert!(res2.upgrade().is_none());
-    assert!(res3.upgrade().is_none());
+    assert!(!tables._contains_res("/todrop4"));
+    assert!(!tables._contains_res("/todrop5"));
+    assert!(!tables._contains_res("/todrop6"));
 }
 
 pub struct ClientPrimitives {
@@ -515,22 +425,16 @@ fn client_test() {
         WhatAmI::Client,
         primitives0.clone(),
     );
-    register_expr(
-        &mut tables,
-        &mut face0.upgrade().unwrap(),
-        11,
-        &"/test/client".into(),
-    );
+    tables.register_expr(&face0.upgrade().unwrap(), 11, &"/test/client".into());
     primitives0.decl_resource(11, &"/test/client".into());
     declare_client_subscription(
         &mut tables,
-        &mut face0.upgrade().unwrap(),
+        &face0.upgrade().unwrap(),
         &KeyExpr::from(11).with_suffix("/**"),
         &sub_info,
     );
-    register_expr(
-        &mut tables,
-        &mut face0.upgrade().unwrap(),
+    tables.register_expr(
+        &face0.upgrade().unwrap(),
         12,
         &KeyExpr::from(11).with_suffix("/z1_pub1"),
     );
@@ -542,22 +446,16 @@ fn client_test() {
         WhatAmI::Client,
         primitives1.clone(),
     );
-    register_expr(
-        &mut tables,
-        &mut face1.upgrade().unwrap(),
-        21,
-        &"/test/client".into(),
-    );
+    tables.register_expr(&face1.upgrade().unwrap(), 21, &"/test/client".into());
     primitives1.decl_resource(21, &"/test/client".into());
     declare_client_subscription(
         &mut tables,
-        &mut face1.upgrade().unwrap(),
+        &face1.upgrade().unwrap(),
         &KeyExpr::from(21).with_suffix("/**"),
         &sub_info,
     );
-    register_expr(
-        &mut tables,
-        &mut face1.upgrade().unwrap(),
+    tables.register_expr(
+        &face1.upgrade().unwrap(),
         22,
         &KeyExpr::from(21).with_suffix("/z2_pub1"),
     );
@@ -569,16 +467,11 @@ fn client_test() {
         WhatAmI::Client,
         primitives2.clone(),
     );
-    register_expr(
-        &mut tables,
-        &mut face2.upgrade().unwrap(),
-        31,
-        &"/test/client".into(),
-    );
+    tables.register_expr(&face2.upgrade().unwrap(), 31, &"/test/client".into());
     primitives2.decl_resource(31, &"/test/client".into());
     declare_client_subscription(
         &mut tables,
-        &mut face2.upgrade().unwrap(),
+        &face2.upgrade().unwrap(),
         &KeyExpr::from(31).with_suffix("/**"),
         &sub_info,
     );
@@ -664,6 +557,7 @@ fn client_test() {
     primitives0.clear_data();
     primitives1.clear_data();
     primitives2.clear_data();
+    println!("ROUTE_DATA");
     route_data(
         &tables,
         &face0.upgrade().unwrap(),

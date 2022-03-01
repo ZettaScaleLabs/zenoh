@@ -22,7 +22,6 @@ use zenoh::net::protocol::core::{
 };
 use zenoh::net::protocol::io::ZBuf;
 use zenoh::net::routing::pubsub::*;
-use zenoh::net::routing::resource::*;
 use zenoh::net::routing::router::Tables;
 use zenoh::net::transport::DummyPrimitives;
 use zenoh_cfg_properties::config::ZN_QUERIES_DEFAULT_TIMEOUT_DEFAULT;
@@ -37,18 +36,8 @@ fn tables_bench(c: &mut Criterion) {
     let primitives = Arc::new(DummyPrimitives {});
 
     let face0 = tables.open_face(PeerId::new(0, [0; 16]), WhatAmI::Client, primitives.clone());
-    register_expr(
-        &mut tables,
-        &mut face0.upgrade().unwrap(),
-        1,
-        &"/bench/tables".into(),
-    );
-    register_expr(
-        &mut tables,
-        &mut face0.upgrade().unwrap(),
-        2,
-        &"/bench/tables/*".into(),
-    );
+    tables.register_expr(&face0.upgrade().unwrap(), 1, &"/bench/tables".into());
+    tables.register_expr(&face0.upgrade().unwrap(), 2, &"/bench/tables/*".into());
 
     let face1 = tables.open_face(PeerId::new(0, [0; 16]), WhatAmI::Client, primitives);
 
@@ -61,15 +50,14 @@ fn tables_bench(c: &mut Criterion) {
 
     for p in [8, 32, 256, 1024, 8192].iter() {
         for i in 1..(*p) {
-            register_expr(
-                &mut tables,
-                &mut face1.upgrade().unwrap(),
+            tables.register_expr(
+                &face1.upgrade().unwrap(),
                 i,
                 &["/bench/tables/AA", &i.to_string()].concat().into(),
             );
             declare_client_subscription(
                 &mut tables,
-                &mut face1.upgrade().unwrap(),
+                &face1.upgrade().unwrap(),
                 &i.into(),
                 &sub_info,
             );

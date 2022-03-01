@@ -15,7 +15,7 @@ pub mod face;
 pub mod network;
 pub mod pubsub;
 pub mod queries;
-pub mod resource;
+pub mod restree;
 pub mod router;
 
 use super::runtime;

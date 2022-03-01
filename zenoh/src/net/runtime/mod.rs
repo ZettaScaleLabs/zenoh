@@ -138,7 +138,7 @@ impl Runtime {
         };
         *handler.runtime.write().unwrap() = Some(runtime.clone());
         if use_link_state {
-            get_mut_unchecked(&mut runtime.router.clone()).init_link_state(
+            get_mut_unchecked(&runtime.router).init_link_state(
                 runtime.clone(),
                 peers_autoconnect,
                 routers_autoconnect_gossip,
