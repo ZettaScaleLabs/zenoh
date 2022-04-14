@@ -50,7 +50,7 @@ async fn main() {
             sample = subscriber.next() => {
                 let sample = sample.unwrap();
                 println!(">> [Subscriber] Received {} ('{}': '{}')",
-                    sample.kind, sample.key_expr.as_str(), String::from_utf8_lossy(&sample.value.payload.contiguous()));
+                    sample.kind, sample.key_expr.as_str(), String::from_utf8_lossy(&sample.payload.contiguous()));
                 if sample.kind == SampleKind::Delete {
                     stored.remove(&sample.key_expr.to_string());
                 } else {

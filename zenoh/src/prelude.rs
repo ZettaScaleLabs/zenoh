@@ -378,7 +378,7 @@ impl From<ZInt> for SampleKind {
 pub struct Sample {
     // The key expression on which this Sample was published.
     pub key_expr: KeyExpr<'static>,
-    /// The value of this Sample.
+    /// The value of this Sample. [`Sample`] derefs to this field.
     pub value: Value,
     // The kind of this Sample.
     pub kind: SampleKind,
@@ -386,6 +386,18 @@ pub struct Sample {
     pub timestamp: Option<Timestamp>,
     // Infos on the source of this Sample.
     pub source_info: SourceInfo,
+}
+
+impl std::ops::Deref for Sample {
+    type Target = Value;
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+impl std::ops::DerefMut for Sample {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
+    }
 }
 
 impl Sample {

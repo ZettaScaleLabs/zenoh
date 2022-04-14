@@ -1270,12 +1270,12 @@ impl Session {
     /// }
     /// # })
     /// ```
-    pub fn get<'a, 'b, IntoSelector>(&'a self, selector: IntoSelector) -> Getter<'a, 'b>
+    pub fn get<'a, 'b, IntoSelector>(&'a self, selector: IntoSelector) -> GetterBuilder<'a, 'b>
     where
         IntoSelector: Into<Selector<'b>>,
     {
         let selector = selector.into();
-        Getter {
+        GetterBuilder {
             session: self,
             selector,
             target: Some(QueryTarget::default()),

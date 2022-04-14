@@ -34,7 +34,7 @@ async fn main() {
         println!(
             ">> Received ('{}': '{}')",
             reply.sample.key_expr.as_str(),
-            String::from_utf8_lossy(&reply.sample.value.payload.contiguous())
+            String::from_utf8_lossy(&reply.sample.payload.contiguous())
         )
     }
 }
