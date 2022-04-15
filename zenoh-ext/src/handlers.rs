@@ -154,7 +154,9 @@ impl<'a, 'b, Receiver: Unpin + Send> ZFuture for SubscriptionBuilder<'a, 'b, Rec
         })
     }
 }
+
 #[derive(Debug)]
+/// A subscriber associated with a Receiver.
 pub struct Subscription<'a, Receiver> {
     pub receiver: Receiver,
     pub subscriber: CallbackSubscriber<'a>,
@@ -168,5 +170,41 @@ impl<'a, Receiver> std::ops::Deref for Subscription<'a, Receiver> {
 impl<'a, Receiver> std::ops::DerefMut for Subscription<'a, Receiver> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.receiver
+    }
+}
+impl<'a, Receiver: Send + Unpin> Subscription<'a, Receiver> {
+    pub fn undeclare(self) -> impl ZFuture<Output = ZResult<Receiver>> {
+        let Subscription {
+            receiver,
+            subscriber,
+        } = self;
+        ZFutureMap {
+            fut: subscriber.undeclare(),
+            map: Some(move |r: ZResult<()>| r.map(move |_| receiver)),
+        }
+    }
+}
+
+/// A map operation for ZFutures
+struct ZFutureMap<Fut: std::future::Future, Map: FnOnce(Fut::Output) -> R, R> {
+    fut: Fut,
+    map: Option<Map>,
+}
+impl<Fut: std::future::Future + Unpin, Map: FnOnce(Fut::Output) -> R + Unpin, R> std::future::Future
+    for ZFutureMap<Fut, Map, R>
+{
+    type Output = R;
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        self.fut.poll_unpin(cx).map(|r| self.map.take().unwrap()(r))
+    }
+}
+impl<Fut: ZFuture + Unpin, Map: FnOnce(Fut::Output) -> R + Unpin + Send, R> ZFuture
+    for ZFutureMap<Fut, Map, R>
+{
+    fn wait(self) -> <Self as futures::Future>::Output {
+        self.map.unwrap()(self.fut.wait())
     }
 }
