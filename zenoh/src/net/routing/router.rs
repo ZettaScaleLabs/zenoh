@@ -12,7 +12,7 @@
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
 use super::face::{Face, FaceId, FaceState};
-use super::network::{shared_nodes, Network};
+use super::network::{shared_nodes, LinkId, Network};
 pub use super::pubsub::*;
 pub use super::queries::*;
 use super::restree::ResourceTreeContainer;
@@ -231,7 +231,7 @@ impl Tables {
         pid: PeerId,
         whatami: WhatAmI,
         primitives: Arc<dyn Primitives + Send + Sync>,
-        link_id: usize,
+        link_id: LinkId,
     ) -> Weak<FaceState> {
         let fid = FaceId::new(self.face_counter);
         self.face_counter += 1;
@@ -254,7 +254,7 @@ impl Tables {
         whatami: WhatAmI,
         primitives: Arc<dyn Primitives + Send + Sync>,
     ) -> Weak<FaceState> {
-        self.open_net_face(pid, whatami, primitives, 0)
+        self.open_net_face(pid, whatami, primitives, LinkId::new(0))
     }
 
     pub fn close_face(&mut self, face: &Weak<FaceState>) {
@@ -659,7 +659,7 @@ impl Router {
                 .as_mut()
                 .unwrap()
                 .add_link(transport.clone()),
-            _ => 0,
+            _ => LinkId::new(0),
         };
 
         if tables.whatami == WhatAmI::Router {

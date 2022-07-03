@@ -15,11 +15,28 @@ use super::runtime::Runtime;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::{IntoNodeReferences, VisitMap, Visitable};
 use std::convert::TryInto;
+use std::fmt;
 use vec_map::VecMap;
 use zenoh_link::Locator;
 use zenoh_protocol::core::{PeerId, WhatAmI, ZInt};
 use zenoh_protocol::proto::{LinkState, ZenohMessage};
 use zenoh_transport::TransportUnicast;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub(crate) struct LinkId(usize);
+
+impl LinkId {
+    pub fn new(id: usize) -> Self {
+        Self(id)
+    }
+}
+
+impl fmt::Display for LinkId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 pub(crate) struct Node {
     pub(crate) pid: PeerId,
@@ -29,8 +46,8 @@ pub(crate) struct Node {
     pub(crate) links: Vec<PeerId>,
 }
 
-impl std::fmt::Debug for Node {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl fmt::Debug for Node {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.pid)
     }
 }
@@ -143,8 +160,8 @@ impl Network {
     }
 
     #[inline]
-    pub(crate) fn get_link(&self, id: usize) -> Option<&Link> {
-        self.links.get(id)
+    pub(crate) fn get_link(&self, id: LinkId) -> Option<&Link> {
+        self.links.get(id.0)
     }
 
     #[inline]
@@ -153,7 +170,7 @@ impl Network {
     }
 
     #[inline]
-    pub(crate) fn get_local_context(&self, context: Option<ZInt>, link_id: usize) -> usize {
+    pub(crate) fn get_local_context(&self, context: Option<ZInt>, link_id: LinkId) -> usize {
         let context = context.unwrap_or(0);
         match self.get_link(link_id) {
             Some(link) => match link.get_local_psid(&context) {
@@ -527,7 +544,7 @@ impl Network {
         removed
     }
 
-    pub(crate) fn add_link(&mut self, transport: TransportUnicast) -> usize {
+    pub(crate) fn add_link(&mut self, transport: TransportUnicast) -> LinkId {
         let free_index = {
             let mut i = 0;
             while self.links.contains_key(i) {
@@ -570,7 +587,7 @@ impl Network {
 
         let idxs = self.graph.node_indices().map(|i| (i, true)).collect();
         self.send_on_link(idxs, &transport);
-        free_index
+        LinkId::new(free_index)
     }
 
     pub(crate) fn remove_link(&mut self, pid: &PeerId) -> Vec<(NodeIndex, Node)> {

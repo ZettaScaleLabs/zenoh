@@ -11,6 +11,7 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
+use super::network::LinkId;
 use super::router::*;
 use async_std::sync::Arc;
 use std::collections::{HashMap, HashSet};
@@ -45,7 +46,7 @@ pub struct FaceState {
     pub(super) pid: PeerId,
     pub(super) whatami: WhatAmI,
     pub(super) primitives: Arc<dyn Primitives + Send + Sync>,
-    pub(super) link_id: usize,
+    pub(super) link_id: LinkId,
     pub(super) local_mappings: HashMap<ZInt, ResourceTreeIndex>,
     pub(super) remote_mappings: HashMap<ZInt, ResourceTreeIndex>,
     pub(super) local_subs: HashSet<ResourceTreeIndex>,
@@ -62,7 +63,7 @@ impl FaceState {
         pid: PeerId,
         whatami: WhatAmI,
         primitives: Arc<dyn Primitives + Send + Sync>,
-        link_id: usize,
+        link_id: LinkId,
     ) -> Arc<FaceState> {
         Arc::new(FaceState {
             id,
