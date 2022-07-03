@@ -1138,59 +1138,60 @@ fn get_matching_pulls(
         .unwrap_or_else(|| compute_matching_pulls(tables, prefix, suffix))
 }
 
-macro_rules! send_to_first {
-    ($route:expr, $srcface:expr, $payload:expr, $channel:expr, $cong_ctrl:expr, $data_info:expr) => {
-        let (outface, key_expr, context) = $route.values().next().unwrap();
-        if $srcface.id != outface.id {
-            outface
-                .primitives
-                .send_data(
-                    &key_expr,
-                    $payload,
-                    $channel, // @TODO: Need to check the active subscriptions to determine the right reliability value
-                    $cong_ctrl,
-                    $data_info,
-                    *context,
-                )
+fn send_to_first(
+    route: &Route,
+    srcface: &FaceState,
+    payload: ZBuf,
+    channel: Channel,
+    cong_ctrl: CongestionControl,
+    data_info: Option<DataInfo>,
+) {
+    let (outface, key_expr, context) = route.values().next().unwrap();
+    if srcface.id != outface.id {
+        outface.primitives.send_data(
+            &key_expr, payload,
+            channel, // @TODO: Need to check the active subscriptions to determine the right reliability value
+            cong_ctrl, data_info, *context,
+        )
+    }
+}
+
+fn send_to_all(
+    route: &Route,
+    srcface: &FaceState,
+    payload: ZBuf,
+    channel: Channel,
+    cong_ctrl: CongestionControl,
+    data_info: Option<DataInfo>,
+) {
+    for (outface, key_expr, context) in route.values() {
+        if srcface.id != outface.id {
+            outface.primitives.send_data(
+                key_expr,
+                payload.clone(),
+                channel, // @TODO: Need to check the active subscriptions to determine the right reliability value
+                cong_ctrl,
+                data_info.clone(),
+                *context,
+            )
         }
     }
 }
 
-macro_rules! send_to_all {
-    ($route:expr, $srcface:expr, $payload:expr, $channel:expr, $cong_ctrl:expr, $data_info:expr) => {
-        for (outface, key_expr, context) in $route.values() {
-            if $srcface.id != outface.id {
-                outface
-                    .primitives
-                    .send_data(
-                        &key_expr,
-                        $payload.clone(),
-                        $channel, // @TODO: Need to check the active subscriptions to determine the right reliability value
-                        $cong_ctrl,
-                        $data_info.clone(),
-                        *context,
-                    )
-            }
-        }
+fn cache_data(
+    tables: &Tables,
+    matching_pulls: Arc<PullCaches>,
+    prefix: ResourceTreeIndex,
+    suffix: &str,
+    payload: &ZBuf,
+    info: Option<&DataInfo>,
+) {
+    for context in matching_pulls.iter() {
+        get_mut_unchecked(context).last_values.insert(
+            [&tables.restree.expr(&prefix), suffix].concat(),
+            (info.cloned(), payload.clone()),
+        );
     }
-}
-
-macro_rules! cache_data {
-    (
-        $tables:expr,
-        $matching_pulls:expr,
-        $prefix:expr,
-        $suffix:expr,
-        $payload:expr,
-        $info:expr
-    ) => {
-        for context in $matching_pulls.iter() {
-            get_mut_unchecked(context).last_values.insert(
-                [&$tables.restree.expr(&$prefix), $suffix].concat(),
-                ($info.clone(), $payload.clone()),
-            );
-        }
-    };
 }
 
 #[inline]
@@ -1228,21 +1229,35 @@ pub fn route_data(
                 let data_info = treat_timestamp!(&tables.hlc, info);
 
                 if route.len() == 1 && matching_pulls.len() == 0 {
-                    send_to_first!(route, face, payload, channel, congestion_control, data_info);
+                    send_to_first(
+                        &*route,
+                        face,
+                        payload,
+                        channel,
+                        congestion_control,
+                        data_info,
+                    );
                 } else {
                     if !matching_pulls.is_empty() {
                         let lock = zlock!(tables.pull_caches_lock);
-                        cache_data!(
-                            tables,
+                        cache_data(
+                            &*tables,
                             matching_pulls,
                             prefix,
                             expr.suffix.as_ref(),
-                            payload,
-                            data_info
+                            &payload,
+                            data_info.as_ref(),
                         );
                         drop(lock);
                     }
-                    send_to_all!(route, face, payload, channel, congestion_control, data_info);
+                    send_to_all(
+                        &*route,
+                        face,
+                        payload,
+                        channel,
+                        congestion_control,
+                        data_info,
+                    );
                 }
             }
         }
@@ -1289,22 +1304,36 @@ pub fn full_reentrant_route_data(
 
                 if route.len() == 1 && matching_pulls.len() == 0 {
                     drop(tables);
-                    send_to_first!(route, face, payload, channel, congestion_control, data_info);
+                    send_to_first(
+                        &*route,
+                        face,
+                        payload,
+                        channel,
+                        congestion_control,
+                        data_info,
+                    );
                 } else {
                     if !matching_pulls.is_empty() {
                         let lock = zlock!(tables.pull_caches_lock);
-                        cache_data!(
-                            tables,
+                        cache_data(
+                            &*tables,
                             matching_pulls,
                             prefix,
                             expr.suffix.as_ref(),
-                            payload,
-                            data_info
+                            &payload,
+                            data_info.as_ref(),
                         );
                         drop(lock);
                     }
                     drop(tables);
-                    send_to_all!(route, face, payload, channel, congestion_control, data_info);
+                    send_to_all(
+                        &*route,
+                        face,
+                        payload,
+                        channel,
+                        congestion_control,
+                        data_info,
+                    );
                 }
             }
         }
