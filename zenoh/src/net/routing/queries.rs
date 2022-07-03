@@ -208,7 +208,7 @@ fn local_qabl_info(
 
 #[allow(clippy::too_many_arguments)]
 #[inline]
-fn send_sourced_queryable_to_net_childs<Face: std::borrow::Borrow<Arc<FaceState>>>(
+fn send_sourced_queryable_to_net_childs(
     restree: &mut ResourceTree,
     faces: &HashMap<FaceId, Arc<FaceState>>,
     net: &Network,
@@ -216,18 +216,18 @@ fn send_sourced_queryable_to_net_childs<Face: std::borrow::Borrow<Arc<FaceState>
     res: &ResourceTreeIndex,
     kind: ZInt,
     qabl_info: &QueryableInfo,
-    src_face: Option<Face>,
+    src_face: Option<&Arc<FaceState>>,
     routing_context: Option<RoutingContext>,
 ) {
-    for child in childs {
-        if net.graph.contains_node(*child) {
+    for &child in childs {
+        if let Some(child_node) = net.graph.node_weight(child) {
             match faces
                 .values()
-                .find(|face| face.pid == net.graph[*child].pid)
+                .find(|face| face.pid == child_node.pid)
                 .cloned()
             {
                 Some(someface) => {
-                    if src_face.is_none() || someface.id != src_face.as_ref().unwrap().borrow().id {
+                    if src_face.is_none() || someface.id != src_face.as_ref().unwrap().id {
                         let key_expr = Tables::decl_key(restree, res, &someface);
 
                         log::debug!(
@@ -245,7 +245,7 @@ fn send_sourced_queryable_to_net_childs<Face: std::borrow::Borrow<Arc<FaceState>
                         );
                     }
                 }
-                None => log::trace!("Unable to find face for pid {}", net.graph[*child].pid),
+                None => log::trace!("Unable to find face for pid {}", child_node.pid),
             }
         }
     }
@@ -283,12 +283,12 @@ fn propagate_simple_queryable(
     }
 }
 
-fn propagate_sourced_queryable<Face: std::borrow::Borrow<Arc<FaceState>>>(
+fn propagate_sourced_queryable(
     tables: &mut Tables,
     res: &ResourceTreeIndex,
     kind: ZInt,
     qabl_info: &QueryableInfo,
-    src_face: Option<Face>,
+    src_face: Option<&Arc<FaceState>>,
     source: &PeerId,
     net_type: WhatAmI,
 ) {
@@ -385,9 +385,9 @@ pub fn declare_router_queryable(
     }
 }
 
-fn register_peer_queryable<Face: std::borrow::Borrow<Arc<FaceState>>>(
+fn register_peer_queryable(
     tables: &mut Tables,
-    face: Option<Face>,
+    face: Option<&Arc<FaceState>>,
     res: &ResourceTreeIndex,
     kind: ZInt,
     qabl_info: &QueryableInfo,
@@ -854,14 +854,7 @@ pub(crate) fn undeclare_client_queryable(
                 undeclare_peer_queryable(tables, None, &res, kind, &tables.pid.clone());
             } else {
                 let local_info = local_peer_qabl_info(tables, &res, kind);
-                register_peer_queryable::<&Arc<FaceState>>(
-                    tables,
-                    None,
-                    &res,
-                    kind,
-                    &local_info,
-                    tables.pid,
-                );
+                register_peer_queryable(tables, None, &res, kind, &local_info, tables.pid);
             }
         }
         _ => {
@@ -1028,7 +1021,7 @@ pub(crate) fn queries_tree_change(
                         .map(|((qabl, kind), qabl_info)| ((*qabl, *kind), qabl_info.clone()))
                     {
                         if qabl == tree_id {
-                            send_sourced_queryable_to_net_childs::<&Arc<FaceState>>(
+                            send_sourced_queryable_to_net_childs(
                                 restree,
                                 &tables.faces,
                                 net,
