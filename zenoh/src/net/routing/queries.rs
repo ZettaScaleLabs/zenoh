@@ -1066,15 +1066,16 @@ fn insert_target_for_qabls(
     suffix: &str,
     tables: &Tables,
     net: &Network,
-    source: usize,
+    source: NodeIndex,
     qabls: &VecMap<(PeerId, ZInt), QueryableInfo>,
     complete: bool,
 ) {
-    if net.trees.len() > source {
+    if net.trees.len() > source.index() {
         for ((qabl, qabl_kind), qabl_info) in qabls {
             if let Some(qabl_idx) = net.get_idx(qabl) {
-                if net.trees[source].directions.len() > qabl_idx.index() {
-                    if let Some(direction) = net.trees[source].directions[qabl_idx.index()] {
+                if net.trees[source.index()].directions.len() > qabl_idx.index() {
+                    if let Some(direction) = net.trees[source.index()].directions[qabl_idx.index()]
+                    {
                         if net.graph.contains_node(direction) {
                             if let Some(face) = tables.get_face(&net.graph[direction].pid) {
                                 if net.distances.len() > qabl_idx.index() {
@@ -1088,8 +1089,8 @@ fn insert_target_for_qabls(
                                         direction: (
                                             face.clone(),
                                             key_expr.to_owned(),
-                                            if source != 0 {
-                                                Some(RoutingContext::new(source as ZInt))
+                                            if source.index() != 0 {
+                                                Some(RoutingContext::new(source.index() as ZInt))
                                             } else {
                                                 None
                                             },
@@ -1106,7 +1107,7 @@ fn insert_target_for_qabls(
             }
         }
     } else {
-        log::trace!("Tree for node sid:{} not yet ready", source);
+        log::trace!("Tree for node sid:{} not yet ready", source.index());
     }
 }
 
@@ -1114,7 +1115,7 @@ fn compute_query_route(
     tables: &mut Tables,
     prefix: &ResourceTreeIndex,
     suffix: &str,
-    source: Option<usize>,
+    source: Option<NodeIndex>,
     source_type: WhatAmI,
 ) -> Arc<TargetQablSet> {
     let mut route = TargetQablSet::new();
@@ -1135,7 +1136,7 @@ fn compute_query_route(
                 let net = tables.routers_net.as_ref().unwrap();
                 let router_source = match source_type {
                     WhatAmI::Router => source.unwrap(),
-                    _ => net.idx.index(),
+                    _ => net.idx,
                 };
                 insert_target_for_qabls(
                     &mut route,
@@ -1153,7 +1154,7 @@ fn compute_query_route(
                 let net = tables.peers_net.as_ref().unwrap();
                 let peer_source = match source_type {
                     WhatAmI::Peer => source.unwrap(),
-                    _ => net.idx.index(),
+                    _ => net.idx,
                 };
                 insert_target_for_qabls(
                     &mut route,
@@ -1172,7 +1173,7 @@ fn compute_query_route(
             let net = tables.peers_net.as_ref().unwrap();
             let peer_source = match source_type {
                 WhatAmI::Router | WhatAmI::Peer => source.unwrap(),
-                _ => net.idx.index(),
+                _ => net.idx,
             };
             insert_target_for_qabls(
                 &mut route,
@@ -1225,9 +1226,9 @@ pub(crate) fn compute_query_routes(tables: &mut Tables, res: &ResourceTreeIndex)
             .routers_query_routes
             .resize_with(max_idx.index() + 1, || Arc::new(TargetQablSet::new()));
 
-        for idx in &indexes {
+        for &idx in &indexes {
             tables.restree.weight_mut(res).routers_query_routes[idx.index()] =
-                compute_query_route(tables, res, "", Some(idx.index()), WhatAmI::Router);
+                compute_query_route(tables, res, "", Some(idx), WhatAmI::Router);
         }
     }
     if tables.whatami == WhatAmI::Router || tables.whatami == WhatAmI::Peer {
@@ -1246,9 +1247,9 @@ pub(crate) fn compute_query_routes(tables: &mut Tables, res: &ResourceTreeIndex)
             .peers_query_routes
             .resize_with(max_idx.index() + 1, || Arc::new(TargetQablSet::new()));
 
-        for idx in &indexes {
+        for &idx in &indexes {
             tables.restree.weight_mut(res).peers_query_routes[idx.index()] =
-                compute_query_route(tables, res, "", Some(idx.index()), WhatAmI::Peer);
+                compute_query_route(tables, res, "", Some(idx), WhatAmI::Peer);
         }
     }
     if tables.whatami == WhatAmI::Client {
@@ -1406,20 +1407,22 @@ impl Timed for QueryCleanup {
 pub(super) fn routers_query_route(
     tables: &Tables,
     res: &ResourceTreeIndex,
-    context: usize,
+    context: NodeIndex,
 ) -> Option<Arc<TargetQablSet>> {
     let ctx = tables.restree.weight(res);
-    (ctx.routers_query_routes.len() > context).then(|| ctx.routers_query_routes[context].clone())
+    (ctx.routers_query_routes.len() > context.index())
+        .then(|| ctx.routers_query_routes[context.index()].clone())
 }
 
 #[inline(always)]
 pub(super) fn peers_query_route(
     tables: &Tables,
     res: &ResourceTreeIndex,
-    context: usize,
+    context: NodeIndex,
 ) -> Option<Arc<TargetQablSet>> {
     let ctx = tables.restree.weight(res);
-    (ctx.peers_query_routes.len() > context).then(|| ctx.peers_query_routes[context].clone())
+    (ctx.peers_query_routes.len() > context.index())
+        .then(|| ctx.peers_query_routes[context.index()].clone())
 }
 
 #[inline(always)]
@@ -1493,7 +1496,7 @@ pub fn route_query(
                     _ => tables
                         .restree
                         .get(&prefix, expr.suffix.as_ref())
-                        .and_then(|res| routers_query_route(&tables, &res, 0))
+                        .and_then(|res| routers_query_route(&tables, &res, NodeIndex::new(0)))
                         .unwrap_or_else(|| {
                             compute_query_route(
                                 &mut tables,
@@ -1526,7 +1529,7 @@ pub fn route_query(
                     _ => tables
                         .restree
                         .get(&prefix, expr.suffix.as_ref())
-                        .and_then(|res| peers_query_route(&tables, &res, 0))
+                        .and_then(|res| peers_query_route(&tables, &res, NodeIndex::new(0)))
                         .unwrap_or_else(|| {
                             compute_query_route(
                                 &mut tables,

@@ -169,23 +169,23 @@ impl Network {
     }
 
     #[inline]
-    pub(crate) fn get_local_context(&self, context: Option<ZInt>, link_id: LinkId) -> usize {
+    pub(crate) fn get_local_context(&self, context: Option<ZInt>, link_id: LinkId) -> NodeIndex {
         let context = context.unwrap_or(0);
         match self.get_link(link_id) {
             Some(link) => match link.get_local_psid(&context) {
-                Some(psid) => (*psid).try_into().unwrap_or(0),
+                Some(&psid) => NodeIndex::new(psid as usize),
                 None => {
                     log::error!(
                         "Cannot find local psid for context {} on link {}",
                         context,
                         link_id
                     );
-                    0
+                    NodeIndex::new(0)
                 }
             },
             None => {
                 log::error!("Cannot find link {}", link_id);
-                0
+                NodeIndex::new(0)
             }
         }
     }
