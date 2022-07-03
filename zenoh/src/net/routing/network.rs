@@ -92,7 +92,6 @@ impl Link {
     }
 }
 
-#[derive(Clone)]
 pub(crate) struct Tree {
     pub(crate) parent: Option<NodeIndex>,
     pub(crate) childs: Vec<NodeIndex>,

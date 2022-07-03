@@ -1378,7 +1378,6 @@ fn compute_final_route(
     }
 }
 
-#[derive(Clone)]
 struct QueryCleanup {
     tables: Arc<RwLock<Tables>>,
     face: Weak<FaceState>,

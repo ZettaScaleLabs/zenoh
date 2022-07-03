@@ -669,22 +669,26 @@ impl Router {
             );
         }
 
-        let handler = Arc::new(LinkStateInterceptor::new(
-            transport.clone(),
-            self.tables.clone(),
-            Face {
+        let handler = {
+            let face = Face {
                 tables: self.tables.clone(),
                 state: tables
                     .open_net_face(
                         transport.get_pid().unwrap(),
                         whatami,
-                        Arc::new(Mux::new(transport)),
+                        Arc::new(Mux::new(transport.clone())),
                         link_id,
                     )
                     .upgrade()
                     .unwrap(),
-            },
-        ));
+            };
+
+            Arc::new(LinkStateInterceptor::new(
+                transport,
+                self.tables.clone(),
+                face,
+            ))
+        };
 
         match (self.whatami, whatami) {
             (WhatAmI::Router, WhatAmI::Router) => {
@@ -704,12 +708,14 @@ impl Router {
 pub struct LinkStateInterceptor {
     pub(crate) transport: TransportUnicast,
     pub(crate) tables: Arc<RwLock<Tables>>,
-    pub(crate) face: Face,
-    pub(crate) demux: DeMux<Face>,
+    pub(crate) face: Arc<Face>,
+    pub(crate) demux: DeMux<Arc<Face>>,
 }
 
 impl LinkStateInterceptor {
     fn new(transport: TransportUnicast, tables: Arc<RwLock<Tables>>, face: Face) -> Self {
+        let face = Arc::new(face);
+
         LinkStateInterceptor {
             transport,
             tables,

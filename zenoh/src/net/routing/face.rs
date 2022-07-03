@@ -174,7 +174,6 @@ impl fmt::Display for FaceState {
     }
 }
 
-#[derive(Clone)]
 pub struct Face {
     pub(crate) tables: Arc<RwLock<Tables>>,
     pub(crate) state: Arc<FaceState>,
