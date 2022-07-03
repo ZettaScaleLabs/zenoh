@@ -11,7 +11,7 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-use super::face::{Face, FaceState};
+use super::face::{Face, FaceId, FaceState};
 use super::network::{shared_nodes, Network};
 pub use super::pubsub::*;
 pub use super::queries::*;
@@ -68,9 +68,9 @@ pub(crate) type ResourceTree =
 pub(crate) type ResourceTreeIndex = Index<ResourceContext>;
 pub(crate) type ResourceTreeWeakIndex = WeakIndex<ResourceContext>;
 pub(super) type Direction = (Arc<FaceState>, KeyExpr<'static>, Option<RoutingContext>);
-pub(super) type Route = HashMap<usize, Direction>;
+pub(super) type Route = HashMap<FaceId, Direction>;
 #[cfg(feature = "complete_n")]
-pub(super) type QueryRoute = HashMap<usize, (Direction, zenoh_protocol_core::Target)>;
+pub(super) type QueryRoute = HashMap<FaceId, (Direction, zenoh_protocol_core::Target)>;
 #[cfg(not(feature = "complete_n"))]
 pub(super) type QueryRoute = Route;
 pub(super) struct TargetQabl {
@@ -93,7 +93,7 @@ pub(crate) struct SessionContext {
 }
 pub(crate) struct ResourceContext {
     pub(super) matches: Vec<ResourceTreeWeakIndex>,
-    pub(super) session_ctxs: VecMap<usize, Arc<SessionContext>>,
+    pub(super) session_ctxs: VecMap<FaceId, Arc<SessionContext>>,
     pub(super) router_subs: VecSet<PeerId>,
     pub(super) peer_subs: VecSet<PeerId>,
     pub(super) router_qabls: VecMap<(PeerId, ZInt), QueryableInfo>,
@@ -136,7 +136,7 @@ pub struct Tables {
     // pub(crate) timer: Timer,
     // pub(crate) queries_default_timeout: Duration,
     pub(crate) restree: ResourceTree,
-    pub(crate) faces: HashMap<usize, Arc<FaceState>>,
+    pub(crate) faces: HashMap<FaceId, Arc<FaceState>>,
     pub(crate) pull_caches_lock: Mutex<()>,
     pub(crate) router_subs: HashSet<ResourceTreeIndex>,
     pub(crate) peer_subs: HashSet<ResourceTreeIndex>,
@@ -233,7 +233,7 @@ impl Tables {
         primitives: Arc<dyn Primitives + Send + Sync>,
         link_id: usize,
     ) -> Weak<FaceState> {
-        let fid = self.face_counter;
+        let fid = FaceId::new(self.face_counter);
         self.face_counter += 1;
         let newface = self
             .faces
@@ -453,7 +453,7 @@ impl Tables {
         restree: &ResourceTree,
         prefix: &ResourceTreeIndex,
         suffix: &'a str,
-        sid: usize,
+        sid: FaceId,
     ) -> KeyExpr<'a> {
         let mut path = restree.reverse_path(prefix, suffix);
         while let Some(res) = path.walk_next(restree.container()) {

@@ -28,7 +28,7 @@ use zenoh_protocol_core::{
 
 use crate::net::routing::router::Matches;
 
-use super::face::FaceState;
+use super::face::{FaceId, FaceState};
 use super::network::Network;
 use super::restree::Strengthen;
 use super::router::{
@@ -39,7 +39,7 @@ use super::router::{
 #[inline]
 fn send_sourced_subscription_to_net_childs(
     restree: &mut ResourceTree,
-    faces: &HashMap<usize, Arc<FaceState>>,
+    faces: &HashMap<FaceId, Arc<FaceState>>,
     net: &Network,
     childs: &[NodeIndex],
     res: &ResourceTreeIndex,
@@ -365,7 +365,7 @@ fn client_subs(tables: &Tables, res: &ResourceTreeIndex) -> Vec<Arc<FaceState>> 
 #[inline]
 fn send_forget_sourced_subscription_to_net_childs(
     restree: &mut ResourceTree,
-    faces: &HashMap<usize, Arc<FaceState>>,
+    faces: &HashMap<FaceId, Arc<FaceState>>,
     net: &Network,
     childs: &[NodeIndex],
     res: &ResourceTreeIndex,

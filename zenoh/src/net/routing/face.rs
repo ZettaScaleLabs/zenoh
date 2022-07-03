@@ -24,8 +24,24 @@ use zenoh_protocol_core::{
 };
 use zenoh_transport::Primitives;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct FaceId(usize);
+
+impl FaceId {
+    pub fn new(id: usize) -> Self {
+        Self(id)
+    }
+}
+
+impl fmt::Display for FaceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 pub struct FaceState {
-    pub(super) id: usize,
+    pub(super) id: FaceId,
     pub(super) pid: PeerId,
     pub(super) whatami: WhatAmI,
     pub(super) primitives: Arc<dyn Primitives + Send + Sync>,
@@ -42,7 +58,7 @@ pub struct FaceState {
 
 impl FaceState {
     pub(super) fn new(
-        id: usize,
+        id: FaceId,
         pid: PeerId,
         whatami: WhatAmI,
         primitives: Arc<dyn Primitives + Send + Sync>,

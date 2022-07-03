@@ -30,7 +30,7 @@ use zenoh_protocol_core::{
     Target, WhatAmI, ZInt,
 };
 
-use super::face::FaceState;
+use super::face::{FaceId, FaceState};
 use super::network::Network;
 use super::restree::Strengthen;
 use super::router::Tables;
@@ -210,7 +210,7 @@ fn local_qabl_info(
 #[inline]
 fn send_sourced_queryable_to_net_childs<Face: std::borrow::Borrow<Arc<FaceState>>>(
     restree: &mut ResourceTree,
-    faces: &HashMap<usize, Arc<FaceState>>,
+    faces: &HashMap<FaceId, Arc<FaceState>>,
     net: &Network,
     childs: &[NodeIndex],
     res: &ResourceTreeIndex,
@@ -570,7 +570,7 @@ fn client_qabls(tables: &Tables, res: &ResourceTreeIndex, kind: ZInt) -> Vec<Arc
 #[inline]
 fn send_forget_sourced_queryable_to_net_childs(
     restree: &mut ResourceTree,
-    faces: &HashMap<usize, Arc<FaceState>>,
+    faces: &HashMap<FaceId, Arc<FaceState>>,
     net: &Network,
     childs: &[NodeIndex],
     res: &ResourceTreeIndex,
