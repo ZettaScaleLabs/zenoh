@@ -160,6 +160,20 @@ impl Network {
     }
 
     #[inline]
+    pub(crate) fn get_node_from_pid(&self, pid: PeerId) -> Option<(NodeIndex, &Node)> {
+        let idx = *self.pid_to_lpsid.get(&pid)?;
+        let node = &self.graph[idx];
+        Some((idx, node))
+    }
+
+    #[inline]
+    pub(crate) fn get_node_from_pid_mut(&mut self, pid: PeerId) -> Option<(NodeIndex, &mut Node)> {
+        let idx = *self.pid_to_lpsid.get(&pid)?;
+        let node = &mut self.graph[idx];
+        Some((idx, node))
+    }
+
+    #[inline]
     pub(crate) fn get_link(&self, id: LinkId) -> Option<&Link> {
         self.links.get(id.0)
     }
