@@ -12,6 +12,8 @@
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
 
+use std::borrow::Cow;
+
 use petgraph::visit::Walker;
 
 pub mod arctree;
@@ -55,7 +57,7 @@ pub trait ResourceTreeContainer<'a, Weight>: 'a {
         from: &Self::Index,
     ) -> Self::Matches;
 
-    fn expr<'b>(&'b self, index: &'b Self::Index) -> std::borrow::Cow<'b, str>;
+    fn expr<'b>(&'b self, index: &'b Self::Index) -> Cow<'b, str>;
     fn weight<'b>(&'b self, index: &'b Self::Index) -> &'b Weight;
     fn weight_mut<'b>(&'b mut self, index: &'b Self::Index) -> &'b mut Weight;
 }
@@ -186,7 +188,7 @@ impl<T: for<'a> ResourceTreeContainer<'a, Weight, Index = Index>, Index: Clone, 
     }
 
     #[inline]
-    pub fn expr<'b>(&'b self, index: &'b Index) -> std::borrow::Cow<'b, str> {
+    pub fn expr<'b>(&'b self, index: &'b Index) -> Cow<'b, str> {
         self.container.expr(index)
     }
 
