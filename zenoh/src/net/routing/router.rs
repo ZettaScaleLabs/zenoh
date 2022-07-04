@@ -12,7 +12,7 @@
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
 use super::face::{Face, FaceId, FaceState};
-use super::network::{shared_nodes, LinkId, Network};
+use super::network::{LinkId, Network};
 pub use super::pubsub::*;
 pub use super::queries::*;
 use super::restree::ResourceTreeContainer;
@@ -618,10 +618,11 @@ impl Router {
                 peers_autoconnect,
                 routers_autoconnect_gossip,
             ));
-            tables.shared_nodes = shared_nodes(
-                tables.routers_net.as_ref().unwrap(),
-                tables.peers_net.as_ref().unwrap(),
-            );
+            tables.shared_nodes = tables
+                .routers_net
+                .as_ref()
+                .unwrap()
+                .shared_nodes(tables.peers_net.as_ref().unwrap());
         }
     }
 
@@ -663,10 +664,11 @@ impl Router {
         };
 
         if tables.whatami == WhatAmI::Router {
-            tables.shared_nodes = shared_nodes(
-                tables.routers_net.as_ref().unwrap(),
-                tables.peers_net.as_ref().unwrap(),
-            );
+            tables.shared_nodes = tables
+                .routers_net
+                .as_ref()
+                .unwrap()
+                .shared_nodes(tables.peers_net.as_ref().unwrap());
         }
 
         let handler = {
@@ -749,10 +751,11 @@ impl TransportPeerEventHandler for LinkStateInterceptor {
                                 );
                             }
 
-                            tables.shared_nodes = shared_nodes(
-                                tables.routers_net.as_ref().unwrap(),
-                                tables.peers_net.as_ref().unwrap(),
-                            );
+                            tables.shared_nodes = tables
+                                .routers_net
+                                .as_ref()
+                                .unwrap()
+                                .shared_nodes(tables.peers_net.as_ref().unwrap());
 
                             tables.schedule_compute_trees(self.tables.clone(), WhatAmI::Router);
                         }
@@ -770,10 +773,11 @@ impl TransportPeerEventHandler for LinkStateInterceptor {
                             }
 
                             if tables.whatami == WhatAmI::Router {
-                                tables.shared_nodes = shared_nodes(
-                                    tables.routers_net.as_ref().unwrap(),
-                                    tables.peers_net.as_ref().unwrap(),
-                                );
+                                tables.shared_nodes = tables
+                                    .routers_net
+                                    .as_ref()
+                                    .unwrap()
+                                    .shared_nodes(tables.peers_net.as_ref().unwrap());
                             }
 
                             tables.schedule_compute_trees(self.tables.clone(), WhatAmI::Peer);
@@ -807,10 +811,11 @@ impl TransportPeerEventHandler for LinkStateInterceptor {
                             queries_remove_node(&mut tables, &removed_node.pid, WhatAmI::Router);
                         }
 
-                        tables.shared_nodes = shared_nodes(
-                            tables.routers_net.as_ref().unwrap(),
-                            tables.peers_net.as_ref().unwrap(),
-                        );
+                        tables.shared_nodes = tables
+                            .routers_net
+                            .as_ref()
+                            .unwrap()
+                            .shared_nodes(tables.peers_net.as_ref().unwrap());
 
                         tables.schedule_compute_trees(tables_ref.clone(), WhatAmI::Router);
                     }
@@ -825,10 +830,11 @@ impl TransportPeerEventHandler for LinkStateInterceptor {
                         }
 
                         if tables.whatami == WhatAmI::Router {
-                            tables.shared_nodes = shared_nodes(
-                                tables.routers_net.as_ref().unwrap(),
-                                tables.peers_net.as_ref().unwrap(),
-                            );
+                            tables.shared_nodes = tables
+                                .routers_net
+                                .as_ref()
+                                .unwrap()
+                                .shared_nodes(tables.peers_net.as_ref().unwrap());
                         }
 
                         tables.schedule_compute_trees(tables_ref.clone(), WhatAmI::Peer);

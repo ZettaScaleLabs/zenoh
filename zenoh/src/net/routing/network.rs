@@ -13,7 +13,8 @@
 //
 use super::runtime::Runtime;
 use petgraph::graph::NodeIndex;
-use petgraph::visit::{IntoNodeReferences, VisitMap, Visitable};
+use petgraph::visit::{VisitMap, Visitable};
+use std::collections::HashSet;
 use std::convert::TryInto;
 use std::fmt;
 use vec_map::VecMap;
@@ -755,17 +756,12 @@ impl Network {
 
         new_childs
     }
-}
 
-#[inline]
-pub(super) fn shared_nodes(net1: &Network, net2: &Network) -> Vec<PeerId> {
-    net1.graph
-        .node_references()
-        .filter_map(|(_, node1)| {
-            net2.graph
-                .node_references()
-                .any(|(_, node2)| node1.pid == node2.pid)
-                .then(|| node1.pid)
-        })
-        .collect()
+    #[inline]
+    pub(super) fn shared_nodes(&self, other: &Network) -> Vec<PeerId> {
+        let pid_set1: HashSet<_> = self.graph.node_weights().map(|node| node.pid).collect();
+        let pid_set2: HashSet<_> = other.graph.node_weights().map(|node| node.pid).collect();
+        let common_pids: Vec<_> = pid_set1.intersection(&pid_set2).cloned().collect();
+        common_pids
+    }
 }
