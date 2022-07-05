@@ -44,7 +44,7 @@ pub(crate) struct Node {
     pub(crate) whatami: Option<WhatAmI>,
     pub(crate) locators: Option<Vec<Locator>>,
     pub(crate) sn: ZInt,
-    pub(crate) links: Vec<PeerId>,
+    pub(crate) links: HashSet<PeerId>,
 }
 
 impl fmt::Debug for Node {
@@ -126,7 +126,7 @@ impl Network {
             whatami: Some(runtime.whatami),
             locators: None,
             sn: 1,
-            links: vec![],
+            links: HashSet::new(),
         });
         Network {
             name,
@@ -157,20 +157,6 @@ impl Network {
         self.graph
             .node_indices()
             .find(|idx| self.graph[*idx].pid == *pid)
-    }
-
-    #[inline]
-    pub(crate) fn get_node_from_pid(&self, pid: PeerId) -> Option<(NodeIndex, &Node)> {
-        let idx = *self.pid_to_lpsid.get(&pid)?;
-        let node = &self.graph[idx];
-        Some((idx, node))
-    }
-
-    #[inline]
-    pub(crate) fn get_node_from_pid_mut(&mut self, pid: PeerId) -> Option<(NodeIndex, &mut Node)> {
-        let idx = *self.pid_to_lpsid.get(&pid)?;
-        let node = &mut self.graph[idx];
-        Some((idx, node))
     }
 
     #[inline]
@@ -412,7 +398,7 @@ impl Network {
                         let oldsn = node.sn;
                         if oldsn < sn {
                             node.sn = sn;
-                            node.links = links.clone();
+                            node.links = links.iter().cloned().collect();
                             if locators.is_some() {
                                 node.locators = locators;
                             }
@@ -431,7 +417,7 @@ impl Network {
                             whatami: Some(whatami),
                             locators,
                             sn,
-                            links: links.clone(),
+                            links: links.iter().cloned().collect(),
                         };
                         log::debug!("{} Add node (state) {}", self.name, pid);
                         let idx = self.add_node(node);
@@ -461,7 +447,7 @@ impl Network {
                         whatami: None,
                         locators: None,
                         sn: 0,
-                        links: vec![],
+                        links: HashSet::new(),
                     };
                     log::debug!("{} Add node (reintroduced) {}", self.name, link.clone());
                     let idx = self.add_node(node);
@@ -580,7 +566,7 @@ impl Network {
                         whatami: Some(whatami),
                         locators: None,
                         sn: 0,
-                        links: vec![],
+                        links: HashSet::new(),
                     }),
                     true,
                 )
@@ -590,7 +576,7 @@ impl Network {
             log::trace!("Update edge (link) {} {}", self.graph[self.idx].pid, pid);
             self.update_edge(self.idx, idx);
         }
-        self.graph[self.idx].links.push(pid);
+        self.graph[self.idx].links.insert(pid);
         self.graph[self.idx].sn += 1;
 
         if new {
