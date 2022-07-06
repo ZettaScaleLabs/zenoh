@@ -13,7 +13,7 @@
 //
 use super::runtime::Runtime;
 use petgraph::graph::NodeIndex;
-use petgraph::visit::{IntoNodeReferences, VisitMap, Visitable};
+use petgraph::visit::{EdgeRef, IntoNodeReferences, VisitMap, Visitable};
 use std::convert::TryInto;
 use vec_map::VecMap;
 use zenoh_link::Locator;
@@ -437,16 +437,40 @@ impl Network {
                     reintroduced_nodes.push((vec![], idx, true));
                 }
             }
-            let mut neighbors = self.graph.neighbors_undirected(*idx1).detach();
-            while let Some((eidx, idx2)) = neighbors.next(&self.graph) {
-                if !links.contains(&self.graph[idx2].pid) {
-                    log::trace!(
-                        "{} Remove edge (state) {} {}",
-                        self.name,
-                        self.graph[*idx1].pid,
-                        self.graph[idx2].pid
-                    );
-                    self.graph.remove_edge(eidx);
+
+            // Remove edges that are not present in links
+            {
+                let neighbors: Vec<_> = self
+                    .graph
+                    .edges(*idx1)
+                    .map(|edge| (edge.id(), edge.target()))
+                    .collect();
+
+                for (eidx, idx2) in neighbors {
+                    // Check if the neighbor still exists
+                    let node2 = match self.graph.node_weight(idx2) {
+                        Some(node2) => node2,
+                        None => {
+                            log::error!(
+                                "{} The node index {} is not fonud in the graph.",
+                                self.name,
+                                idx2.index()
+                            );
+                            continue;
+                        }
+                    };
+
+                    // Remove the edge if it doesn't exist links
+                    if !links.contains(&node2.pid) {
+                        log::trace!(
+                            "{} Remove edge (state) {} {}",
+                            self.name,
+                            self.graph[*idx1].pid,
+                            node2.pid
+                        );
+
+                        self.graph.remove_edge(eidx);
+                    }
                 }
             }
         }
