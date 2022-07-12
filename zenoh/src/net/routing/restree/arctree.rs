@@ -1,3 +1,8 @@
+use std::{
+    borrow::Cow,
+    hash::{Hash, Hasher},
+};
+
 //
 // Copyright (c) 2017, 2020 ADLINK Technology Inc.
 //
@@ -34,7 +39,7 @@ impl<Weight> Node<Weight> {
         }
     }
 
-    fn expr(&self) -> std::borrow::Cow<'static, str> {
+    fn expr(&self) -> Cow<'static, str> {
         match &self.parent {
             Some(parent) => [&parent.expr() as &str, &self.suffix].concat().into(),
             None => "".into(),
@@ -49,8 +54,8 @@ impl<Weight> PartialEq for Node<Weight> {
 }
 impl<Weight> Eq for Node<Weight> {}
 
-impl<Weight> std::hash::Hash for Node<Weight> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl<Weight> Hash for Node<Weight> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.expr().hash(state);
     }
 }
@@ -355,7 +360,7 @@ impl<'a, Weight: 'a> ResourceTreeContainer<'a, Weight> for ArcTree<Weight> {
     }
 
     #[inline]
-    fn expr<'b>(&'b self, index: &'b Self::Index) -> std::borrow::Cow<'b, str> {
+    fn expr<'b>(&'b self, index: &'b Self::Index) -> Cow<'b, str> {
         index.expr()
     }
 

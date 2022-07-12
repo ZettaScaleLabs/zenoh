@@ -73,7 +73,7 @@ impl Runtime {
                     .map(AsRef::as_ref)
                     .unwrap_or("auto")
                     .to_owned(),
-                std::time::Duration::from_secs_f64(guard.scouting().timeout().unwrap_or(3.)),
+                Duration::from_secs_f64(guard.scouting().timeout().unwrap_or(3.)),
             )
         };
         match peers.len() {
@@ -145,7 +145,7 @@ impl Runtime {
                     .map(AsRef::as_ref)
                     .unwrap_or_else(|| ZN_MULTICAST_INTERFACE_DEFAULT)
                     .to_string(),
-                std::time::Duration::from_secs_f64(guard.scouting().delay().unwrap_or(0.2)),
+                Duration::from_secs_f64(guard.scouting().delay().unwrap_or(0.2)),
             )
         };
 
@@ -271,7 +271,7 @@ impl Runtime {
                     .unwrap()
                     .unwrap()
                     .as_any()
-                    .downcast_ref::<super::RuntimeSession>()
+                    .downcast_ref::<RuntimeSession>()
                 {
                     if let Some(locator) = &*zread!(orch_transport.locator) {
                         !peers.contains(locator)
@@ -293,7 +293,7 @@ impl Runtime {
                         .unwrap()
                         .unwrap()
                         .as_any()
-                        .downcast_ref::<super::RuntimeSession>()
+                        .downcast_ref::<RuntimeSession>()
                     {
                         if let Some(locator) = &*zread!(orch_transport.locator) {
                             return *locator == peer;
@@ -449,11 +449,9 @@ impl Runtime {
                 #[allow(clippy::or_fun_call)]
                 let local_addr = socket
                     .local_addr()
-                    .or::<std::io::Error>(Ok(SocketAddr::new(addr, 0).into()))
-                    .unwrap()
+                    .unwrap_or(SocketAddr::new(addr, 0).into())
                     .as_socket()
-                    .or(Some(SocketAddr::new(addr, 0)))
-                    .unwrap();
+                    .unwrap_or(SocketAddr::new(addr, 0));
                 log::debug!("UDP port bound to {}", local_addr);
             }
             Err(err) => {
@@ -476,7 +474,7 @@ impl Runtime {
                     .unwrap()
                     .unwrap()
                     .as_any()
-                    .downcast_ref::<super::RuntimeSession>()
+                    .downcast_ref::<RuntimeSession>()
                 {
                     *zwrite!(orch_transport.locator) = Some(peer);
                 }
@@ -501,8 +499,8 @@ impl Runtime {
         mcast_addr: &SocketAddr,
         mut f: F,
     ) where
-        F: FnMut(Hello) -> Fut + std::marker::Send + Copy,
-        Fut: Future<Output = Loop> + std::marker::Send,
+        F: FnMut(Hello) -> Fut + Send + Copy,
+        Fut: Future<Output = Loop> + Send,
         Self: Sized,
     {
         let send = async {
@@ -549,7 +547,7 @@ impl Runtime {
                     if let Some(msg) = zbuf.reader().read_transport_message() {
                         log::trace!("Received {:?} from {}", msg.body, peer);
                         if let TransportBody::Hello(hello) = &msg.body {
-                            let whatami = hello.whatami.or(Some(WhatAmI::Router)).unwrap();
+                            let whatami = hello.whatami.unwrap_or(WhatAmI::Router);
                             if matcher.matches(whatami) {
                                 if let Loop::Break = f(hello.clone()).await {
                                     break;
@@ -607,7 +605,7 @@ impl Runtime {
         sockets: &[UdpSocket],
         what: I,
         addr: &SocketAddr,
-        timeout: std::time::Duration,
+        timeout: Duration,
     ) -> ZResult<()> {
         let scout = async {
             Runtime::scout(sockets, what.into(), addr, move |hello| async move {
@@ -749,7 +747,7 @@ impl Runtime {
                 session.runtime.spawn(async move {
                     let mut delay = CONNECTION_RETRY_INITIAL_PERIOD;
                     while runtime.start_client().await.is_err() {
-                        async_std::task::sleep(std::time::Duration::from_millis(delay)).await;
+                        async_std::task::sleep(Duration::from_millis(delay)).await;
                         delay *= CONNECTION_RETRY_PERIOD_INCREASE_FACTOR;
                         if delay > CONNECTION_RETRY_MAX_PERIOD {
                             delay = CONNECTION_RETRY_MAX_PERIOD;

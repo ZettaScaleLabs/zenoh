@@ -30,7 +30,7 @@ use zenoh_protocol_core::{
     Target, WhatAmI, ZInt,
 };
 
-use super::face::FaceState;
+use super::face::{FaceId, FaceState};
 use super::network::Network;
 use super::restree::Strengthen;
 use super::router::Tables;
@@ -208,26 +208,26 @@ fn local_qabl_info(
 
 #[allow(clippy::too_many_arguments)]
 #[inline]
-fn send_sourced_queryable_to_net_childs<Face: std::borrow::Borrow<Arc<FaceState>>>(
+fn send_sourced_queryable_to_net_childs(
     restree: &mut ResourceTree,
-    faces: &HashMap<usize, Arc<FaceState>>,
+    faces: &HashMap<FaceId, Arc<FaceState>>,
     net: &Network,
     childs: &[NodeIndex],
     res: &ResourceTreeIndex,
     kind: ZInt,
     qabl_info: &QueryableInfo,
-    src_face: Option<Face>,
+    src_face: Option<&Arc<FaceState>>,
     routing_context: Option<RoutingContext>,
 ) {
-    for child in childs {
-        if net.graph.contains_node(*child) {
+    for &child in childs {
+        if let Some(child_node) = net.graph.node_weight(child) {
             match faces
                 .values()
-                .find(|face| face.pid == net.graph[*child].pid)
+                .find(|face| face.pid == child_node.pid)
                 .cloned()
             {
                 Some(someface) => {
-                    if src_face.is_none() || someface.id != src_face.as_ref().unwrap().borrow().id {
+                    if src_face.is_none() || someface.id != src_face.as_ref().unwrap().id {
                         let key_expr = Tables::decl_key(restree, res, &someface);
 
                         log::debug!(
@@ -245,7 +245,7 @@ fn send_sourced_queryable_to_net_childs<Face: std::borrow::Borrow<Arc<FaceState>
                         );
                     }
                 }
-                None => log::trace!("Unable to find face for pid {}", net.graph[*child].pid),
+                None => log::trace!("Unable to find face for pid {}", child_node.pid),
             }
         }
     }
@@ -283,12 +283,12 @@ fn propagate_simple_queryable(
     }
 }
 
-fn propagate_sourced_queryable<Face: std::borrow::Borrow<Arc<FaceState>>>(
+fn propagate_sourced_queryable(
     tables: &mut Tables,
     res: &ResourceTreeIndex,
     kind: ZInt,
     qabl_info: &QueryableInfo,
-    src_face: Option<Face>,
+    src_face: Option<&Arc<FaceState>>,
     source: &PeerId,
     net_type: WhatAmI,
 ) {
@@ -385,9 +385,9 @@ pub fn declare_router_queryable(
     }
 }
 
-fn register_peer_queryable<Face: std::borrow::Borrow<Arc<FaceState>>>(
+fn register_peer_queryable(
     tables: &mut Tables,
-    face: Option<Face>,
+    face: Option<&Arc<FaceState>>,
     res: &ResourceTreeIndex,
     kind: ZInt,
     qabl_info: &QueryableInfo,
@@ -570,7 +570,7 @@ fn client_qabls(tables: &Tables, res: &ResourceTreeIndex, kind: ZInt) -> Vec<Arc
 #[inline]
 fn send_forget_sourced_queryable_to_net_childs(
     restree: &mut ResourceTree,
-    faces: &HashMap<usize, Arc<FaceState>>,
+    faces: &HashMap<FaceId, Arc<FaceState>>,
     net: &Network,
     childs: &[NodeIndex],
     res: &ResourceTreeIndex,
@@ -854,14 +854,7 @@ pub(crate) fn undeclare_client_queryable(
                 undeclare_peer_queryable(tables, None, &res, kind, &tables.pid.clone());
             } else {
                 let local_info = local_peer_qabl_info(tables, &res, kind);
-                register_peer_queryable::<&Arc<FaceState>>(
-                    tables,
-                    None,
-                    &res,
-                    kind,
-                    &local_info,
-                    tables.pid,
-                );
+                register_peer_queryable(tables, None, &res, kind, &local_info, tables.pid);
             }
         }
         _ => {
@@ -1028,7 +1021,7 @@ pub(crate) fn queries_tree_change(
                         .map(|((qabl, kind), qabl_info)| ((*qabl, *kind), qabl_info.clone()))
                     {
                         if qabl == tree_id {
-                            send_sourced_queryable_to_net_childs::<&Arc<FaceState>>(
+                            send_sourced_queryable_to_net_childs(
                                 restree,
                                 &tables.faces,
                                 net,
@@ -1066,15 +1059,16 @@ fn insert_target_for_qabls(
     suffix: &str,
     tables: &Tables,
     net: &Network,
-    source: usize,
+    source: NodeIndex,
     qabls: &VecMap<(PeerId, ZInt), QueryableInfo>,
     complete: bool,
 ) {
-    if net.trees.len() > source {
+    if net.trees.len() > source.index() {
         for ((qabl, qabl_kind), qabl_info) in qabls {
             if let Some(qabl_idx) = net.get_idx(qabl) {
-                if net.trees[source].directions.len() > qabl_idx.index() {
-                    if let Some(direction) = net.trees[source].directions[qabl_idx.index()] {
+                if net.trees[source.index()].directions.len() > qabl_idx.index() {
+                    if let Some(direction) = net.trees[source.index()].directions[qabl_idx.index()]
+                    {
                         if net.graph.contains_node(direction) {
                             if let Some(face) = tables.get_face(&net.graph[direction].pid) {
                                 if net.distances.len() > qabl_idx.index() {
@@ -1088,8 +1082,8 @@ fn insert_target_for_qabls(
                                         direction: (
                                             face.clone(),
                                             key_expr.to_owned(),
-                                            if source != 0 {
-                                                Some(RoutingContext::new(source as ZInt))
+                                            if source.index() != 0 {
+                                                Some(RoutingContext::new(source.index() as ZInt))
                                             } else {
                                                 None
                                             },
@@ -1106,7 +1100,7 @@ fn insert_target_for_qabls(
             }
         }
     } else {
-        log::trace!("Tree for node sid:{} not yet ready", source);
+        log::trace!("Tree for node sid:{} not yet ready", source.index());
     }
 }
 
@@ -1114,7 +1108,7 @@ fn compute_query_route(
     tables: &mut Tables,
     prefix: &ResourceTreeIndex,
     suffix: &str,
-    source: Option<usize>,
+    source: Option<NodeIndex>,
     source_type: WhatAmI,
 ) -> Arc<TargetQablSet> {
     let mut route = TargetQablSet::new();
@@ -1135,7 +1129,7 @@ fn compute_query_route(
                 let net = tables.routers_net.as_ref().unwrap();
                 let router_source = match source_type {
                     WhatAmI::Router => source.unwrap(),
-                    _ => net.idx.index(),
+                    _ => net.idx,
                 };
                 insert_target_for_qabls(
                     &mut route,
@@ -1153,7 +1147,7 @@ fn compute_query_route(
                 let net = tables.peers_net.as_ref().unwrap();
                 let peer_source = match source_type {
                     WhatAmI::Peer => source.unwrap(),
-                    _ => net.idx.index(),
+                    _ => net.idx,
                 };
                 insert_target_for_qabls(
                     &mut route,
@@ -1172,7 +1166,7 @@ fn compute_query_route(
             let net = tables.peers_net.as_ref().unwrap();
             let peer_source = match source_type {
                 WhatAmI::Router | WhatAmI::Peer => source.unwrap(),
-                _ => net.idx.index(),
+                _ => net.idx,
             };
             insert_target_for_qabls(
                 &mut route,
@@ -1225,9 +1219,9 @@ pub(crate) fn compute_query_routes(tables: &mut Tables, res: &ResourceTreeIndex)
             .routers_query_routes
             .resize_with(max_idx.index() + 1, || Arc::new(TargetQablSet::new()));
 
-        for idx in &indexes {
+        for &idx in &indexes {
             tables.restree.weight_mut(res).routers_query_routes[idx.index()] =
-                compute_query_route(tables, res, "", Some(idx.index()), WhatAmI::Router);
+                compute_query_route(tables, res, "", Some(idx), WhatAmI::Router);
         }
     }
     if tables.whatami == WhatAmI::Router || tables.whatami == WhatAmI::Peer {
@@ -1246,9 +1240,9 @@ pub(crate) fn compute_query_routes(tables: &mut Tables, res: &ResourceTreeIndex)
             .peers_query_routes
             .resize_with(max_idx.index() + 1, || Arc::new(TargetQablSet::new()));
 
-        for idx in &indexes {
+        for &idx in &indexes {
             tables.restree.weight_mut(res).peers_query_routes[idx.index()] =
-                compute_query_route(tables, res, "", Some(idx.index()), WhatAmI::Peer);
+                compute_query_route(tables, res, "", Some(idx), WhatAmI::Peer);
         }
     }
     if tables.whatami == WhatAmI::Client {
@@ -1378,7 +1372,6 @@ fn compute_final_route(
     }
 }
 
-#[derive(Clone)]
 struct QueryCleanup {
     tables: Arc<RwLock<Tables>>,
     face: Weak<FaceState>,
@@ -1407,20 +1400,22 @@ impl Timed for QueryCleanup {
 pub(super) fn routers_query_route(
     tables: &Tables,
     res: &ResourceTreeIndex,
-    context: usize,
+    context: NodeIndex,
 ) -> Option<Arc<TargetQablSet>> {
     let ctx = tables.restree.weight(res);
-    (ctx.routers_query_routes.len() > context).then(|| ctx.routers_query_routes[context].clone())
+    (ctx.routers_query_routes.len() > context.index())
+        .then(|| ctx.routers_query_routes[context.index()].clone())
 }
 
 #[inline(always)]
 pub(super) fn peers_query_route(
     tables: &Tables,
     res: &ResourceTreeIndex,
-    context: usize,
+    context: NodeIndex,
 ) -> Option<Arc<TargetQablSet>> {
     let ctx = tables.restree.weight(res);
-    (ctx.peers_query_routes.len() > context).then(|| ctx.peers_query_routes[context].clone())
+    (ctx.peers_query_routes.len() > context.index())
+        .then(|| ctx.peers_query_routes[context.index()].clone())
 }
 
 #[inline(always)]
@@ -1494,7 +1489,7 @@ pub fn route_query(
                     _ => tables
                         .restree
                         .get(&prefix, expr.suffix.as_ref())
-                        .and_then(|res| routers_query_route(&tables, &res, 0))
+                        .and_then(|res| routers_query_route(&tables, &res, NodeIndex::new(0)))
                         .unwrap_or_else(|| {
                             compute_query_route(
                                 &mut tables,
@@ -1527,7 +1522,7 @@ pub fn route_query(
                     _ => tables
                         .restree
                         .get(&prefix, expr.suffix.as_ref())
-                        .and_then(|res| peers_query_route(&tables, &res, 0))
+                        .and_then(|res| peers_query_route(&tables, &res, NodeIndex::new(0)))
                         .unwrap_or_else(|| {
                             compute_query_route(
                                 &mut tables,

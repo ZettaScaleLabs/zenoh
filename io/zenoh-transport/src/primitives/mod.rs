@@ -23,6 +23,7 @@ use super::protocol::io::ZBuf;
 use super::protocol::proto::{DataInfo, RoutingContext};
 pub use demux::*;
 pub use mux::*;
+use std::ops::Deref;
 
 pub trait Primitives: Send + Sync {
     fn decl_resource(&self, expr_id: ZInt, key_expr: &KeyExpr);
@@ -94,6 +95,133 @@ pub trait Primitives: Send + Sync {
     );
 
     fn send_close(&self);
+}
+
+impl<P> Primitives for P
+where
+    P: Deref + Send + Sync,
+    P::Target: Primitives + Send + Sync,
+{
+    fn decl_resource(&self, expr_id: ZInt, key_expr: &KeyExpr) {
+        self.deref().decl_resource(expr_id, key_expr)
+    }
+
+    fn forget_resource(&self, expr_id: ZInt) {
+        self.deref().forget_resource(expr_id)
+    }
+
+    fn decl_publisher(&self, key_expr: &KeyExpr, routing_context: Option<RoutingContext>) {
+        self.deref().decl_publisher(key_expr, routing_context)
+    }
+
+    fn forget_publisher(&self, key_expr: &KeyExpr, routing_context: Option<RoutingContext>) {
+        self.deref().forget_publisher(key_expr, routing_context)
+    }
+
+    fn decl_subscriber(
+        &self,
+        key_expr: &KeyExpr,
+        sub_info: &SubInfo,
+        routing_context: Option<RoutingContext>,
+    ) {
+        self.deref()
+            .decl_subscriber(key_expr, sub_info, routing_context)
+    }
+
+    fn forget_subscriber(&self, key_expr: &KeyExpr, routing_context: Option<RoutingContext>) {
+        self.deref().forget_subscriber(key_expr, routing_context)
+    }
+
+    fn decl_queryable(
+        &self,
+        key_expr: &KeyExpr,
+        kind: ZInt,
+        qabl_info: &QueryableInfo,
+        routing_context: Option<RoutingContext>,
+    ) {
+        self.deref()
+            .decl_queryable(key_expr, kind, qabl_info, routing_context)
+    }
+
+    fn forget_queryable(
+        &self,
+        key_expr: &KeyExpr,
+        kind: ZInt,
+        routing_context: Option<RoutingContext>,
+    ) {
+        self.deref()
+            .forget_queryable(key_expr, kind, routing_context)
+    }
+
+    fn send_data(
+        &self,
+        key_expr: &KeyExpr,
+        payload: ZBuf,
+        channel: Channel,
+        cogestion_control: CongestionControl,
+        data_info: Option<DataInfo>,
+        routing_context: Option<RoutingContext>,
+    ) {
+        self.deref().send_data(
+            key_expr,
+            payload,
+            channel,
+            cogestion_control,
+            data_info,
+            routing_context,
+        )
+    }
+
+    fn send_query(
+        &self,
+        key_expr: &KeyExpr,
+        value_selector: &str,
+        qid: ZInt,
+        target: QueryTarget,
+        consolidation: ConsolidationStrategy,
+        routing_context: Option<RoutingContext>,
+    ) {
+        self.deref().send_query(
+            key_expr,
+            value_selector,
+            qid,
+            target,
+            consolidation,
+            routing_context,
+        )
+    }
+
+    fn send_reply_data(
+        &self,
+        qid: ZInt,
+        replier_kind: ZInt,
+        replier_id: PeerId,
+        key_expr: KeyExpr,
+        info: Option<DataInfo>,
+        payload: ZBuf,
+    ) {
+        self.deref()
+            .send_reply_data(qid, replier_kind, replier_id, key_expr, info, payload)
+    }
+
+    fn send_reply_final(&self, qid: ZInt) {
+        self.deref().send_reply_final(qid)
+    }
+
+    fn send_pull(
+        &self,
+        is_final: bool,
+        key_expr: &KeyExpr,
+        pull_id: ZInt,
+        max_samples: &Option<ZInt>,
+    ) {
+        self.deref()
+            .send_pull(is_final, key_expr, pull_id, max_samples)
+    }
+
+    fn send_close(&self) {
+        self.deref().send_close()
+    }
 }
 
 #[derive(Default)]

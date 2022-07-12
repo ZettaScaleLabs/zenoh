@@ -33,7 +33,7 @@ pub type NonZeroZInt = NonZeroU64;
 pub const ZINT_MAX_BYTES: usize = 10;
 
 // WhatAmI values
-pub type WhatAmI = whatami::WhatAmI;
+pub use whatami::WhatAmI;
 
 /// Constants and helpers for zenoh `whatami` flags.
 pub mod whatami;
@@ -54,14 +54,14 @@ pub use locators::Locator;
 pub mod endpoints;
 pub use endpoints::EndPoint;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Property {
     pub key: ZInt,
     pub value: Vec<u8>,
 }
 
 /// The global unique id of a zenoh peer.
-#[derive(Clone, Copy, Eq)]
+#[derive(Clone, Copy)]
 pub struct PeerId {
     size: usize,
     id: [u8; PeerId::MAX_SIZE],
@@ -119,9 +119,11 @@ impl FromStr for PeerId {
 impl PartialEq for PeerId {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.size == other.size && self.as_slice() == other.as_slice()
+        self.as_slice() == other.as_slice()
     }
 }
+
+impl Eq for PeerId {}
 
 impl Hash for PeerId {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -148,7 +150,7 @@ impl From<&PeerId> for uhlc::ID {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Priority {
     Control = 0,
@@ -170,6 +172,7 @@ impl Default for Priority {
         Priority::Data
     }
 }
+
 impl TryFrom<u8> for Priority {
     type Error = zenoh_core::Error;
 
@@ -191,7 +194,7 @@ impl TryFrom<u8> for Priority {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Reliability {
     BestEffort,
@@ -204,13 +207,13 @@ impl Default for Reliability {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Channel {
     pub priority: Priority,
     pub reliability: Reliability,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ConduitSnList {
     Plain(ConduitSn),
     QoS(Box<[ConduitSn; Priority::NUM]>),
@@ -248,14 +251,14 @@ impl fmt::Display for ConduitSnList {
 }
 
 /// The kind of reliability.
-#[derive(Debug, Copy, Clone, PartialEq, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
 pub struct ConduitSn {
     pub reliable: ZInt,
     pub best_effort: ZInt,
 }
 
 /// The kind of congestion control.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum CongestionControl {
     Block,
@@ -269,7 +272,7 @@ impl Default for CongestionControl {
 }
 
 /// The subscription mode.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum SubMode {
     Push,
@@ -284,21 +287,21 @@ impl Default for SubMode {
 }
 
 /// A time period.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Period {
     pub origin: ZInt,
     pub period: ZInt,
     pub duration: ZInt,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct SubInfo {
     pub reliability: Reliability,
     pub mode: SubMode,
     pub period: Option<Period>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct QueryableInfo {
     pub complete: ZInt,
     pub distance: ZInt,
@@ -320,7 +323,7 @@ pub mod queryable {
 }
 
 /// The kind of consolidation.
-#[derive(Debug, Clone, PartialEq, Copy)]
+#[derive(Debug, Clone, PartialEq, Copy, Eq, Hash)]
 #[repr(u8)]
 pub enum ConsolidationMode {
     None,
@@ -330,7 +333,7 @@ pub enum ConsolidationMode {
 
 /// The kind of consolidation that should be applied on replies to a [`get`](zenoh::Session::get)
 /// at different stages of the reply process.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ConsolidationStrategy {
     pub first_routers: ConsolidationMode,
     pub last_router: ConsolidationMode,
@@ -415,7 +418,7 @@ impl Default for ConsolidationStrategy {
 }
 
 /// The [`Queryable`](zenoh::queryable::Queryable)s that should be target of a [`get`](zenoh::Session::get).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Target {
     BestMatching,
     All,
@@ -432,7 +435,7 @@ impl Default for Target {
 }
 
 /// The [`Queryable`](zenoh::queryable::Queryable)s that should be target of a [`get`](zenoh::Session::get).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct QueryTarget {
     pub kind: ZInt,
     pub target: Target,

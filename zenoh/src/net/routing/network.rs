@@ -13,24 +13,42 @@
 //
 use super::runtime::Runtime;
 use petgraph::graph::NodeIndex;
-use petgraph::visit::{IntoNodeReferences, VisitMap, Visitable};
+use petgraph::visit::{VisitMap, Visitable};
+use std::collections::HashSet;
 use std::convert::TryInto;
+use std::fmt;
 use vec_map::VecMap;
 use zenoh_link::Locator;
 use zenoh_protocol::core::{PeerId, WhatAmI, ZInt};
 use zenoh_protocol::proto::{LinkState, ZenohMessage};
 use zenoh_transport::TransportUnicast;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub(crate) struct LinkId(usize);
+
+impl LinkId {
+    pub fn new(id: usize) -> Self {
+        Self(id)
+    }
+}
+
+impl fmt::Display for LinkId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 pub(crate) struct Node {
     pub(crate) pid: PeerId,
     pub(crate) whatami: Option<WhatAmI>,
     pub(crate) locators: Option<Vec<Locator>>,
     pub(crate) sn: ZInt,
-    pub(crate) links: Vec<PeerId>,
+    pub(crate) links: HashSet<PeerId>,
 }
 
-impl std::fmt::Debug for Node {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl fmt::Debug for Node {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.pid)
     }
 }
@@ -75,7 +93,6 @@ impl Link {
     }
 }
 
-#[derive(Clone)]
 pub(crate) struct Tree {
     pub(crate) parent: Option<NodeIndex>,
     pub(crate) childs: Vec<NodeIndex>,
@@ -109,7 +126,7 @@ impl Network {
             whatami: Some(runtime.whatami),
             locators: None,
             sn: 1,
-            links: vec![],
+            links: HashSet::new(),
         });
         Network {
             name,
@@ -129,7 +146,7 @@ impl Network {
     }
 
     pub(crate) fn dot(&self) -> String {
-        std::format!(
+        format!(
             "{:?}",
             petgraph::dot::Dot::with_config(&self.graph, &[petgraph::dot::Config::EdgeNoLabel])
         )
@@ -143,8 +160,8 @@ impl Network {
     }
 
     #[inline]
-    pub(crate) fn get_link(&self, id: usize) -> Option<&Link> {
-        self.links.get(id)
+    pub(crate) fn get_link(&self, id: LinkId) -> Option<&Link> {
+        self.links.get(id.0)
     }
 
     #[inline]
@@ -153,23 +170,23 @@ impl Network {
     }
 
     #[inline]
-    pub(crate) fn get_local_context(&self, context: Option<ZInt>, link_id: usize) -> usize {
+    pub(crate) fn get_local_context(&self, context: Option<ZInt>, link_id: LinkId) -> NodeIndex {
         let context = context.unwrap_or(0);
         match self.get_link(link_id) {
             Some(link) => match link.get_local_psid(&context) {
-                Some(psid) => (*psid).try_into().unwrap_or(0),
+                Some(&psid) => NodeIndex::new(psid as usize),
                 None => {
                     log::error!(
                         "Cannot find local psid for context {} on link {}",
                         context,
                         link_id
                     );
-                    0
+                    NodeIndex::new(0)
                 }
             },
             None => {
                 log::error!("Cannot find link {}", link_id);
-                0
+                NodeIndex::new(0)
             }
         }
     }
@@ -381,7 +398,7 @@ impl Network {
                         let oldsn = node.sn;
                         if oldsn < sn {
                             node.sn = sn;
-                            node.links = links.clone();
+                            node.links = links.iter().cloned().collect();
                             if locators.is_some() {
                                 node.locators = locators;
                             }
@@ -400,7 +417,7 @@ impl Network {
                             whatami: Some(whatami),
                             locators,
                             sn,
-                            links: links.clone(),
+                            links: links.iter().cloned().collect(),
                         };
                         log::debug!("{} Add node (state) {}", self.name, pid);
                         let idx = self.add_node(node);
@@ -430,7 +447,7 @@ impl Network {
                         whatami: None,
                         locators: None,
                         sn: 0,
-                        links: vec![],
+                        links: HashSet::new(),
                     };
                     log::debug!("{} Add node (reintroduced) {}", self.name, link.clone());
                     let idx = self.add_node(node);
@@ -527,7 +544,7 @@ impl Network {
         removed
     }
 
-    pub(crate) fn add_link(&mut self, transport: TransportUnicast) -> usize {
+    pub(crate) fn add_link(&mut self, transport: TransportUnicast) -> LinkId {
         let free_index = {
             let mut i = 0;
             while self.links.contains_key(i) {
@@ -549,7 +566,7 @@ impl Network {
                         whatami: Some(whatami),
                         locators: None,
                         sn: 0,
-                        links: vec![],
+                        links: HashSet::new(),
                     }),
                     true,
                 )
@@ -559,7 +576,7 @@ impl Network {
             log::trace!("Update edge (link) {} {}", self.graph[self.idx].pid, pid);
             self.update_edge(self.idx, idx);
         }
-        self.graph[self.idx].links.push(pid);
+        self.graph[self.idx].links.insert(pid);
         self.graph[self.idx].sn += 1;
 
         if new {
@@ -570,7 +587,7 @@ impl Network {
 
         let idxs = self.graph.node_indices().map(|i| (i, true)).collect();
         self.send_on_link(idxs, &transport);
-        free_index
+        LinkId::new(free_index)
     }
 
     pub(crate) fn remove_link(&mut self, pid: &PeerId) -> Vec<(NodeIndex, Node)> {
@@ -739,17 +756,12 @@ impl Network {
 
         new_childs
     }
-}
 
-#[inline]
-pub(super) fn shared_nodes(net1: &Network, net2: &Network) -> Vec<PeerId> {
-    net1.graph
-        .node_references()
-        .filter_map(|(_, node1)| {
-            net2.graph
-                .node_references()
-                .any(|(_, node2)| node1.pid == node2.pid)
-                .then(|| node1.pid)
-        })
-        .collect()
+    #[inline]
+    pub(super) fn shared_nodes(&self, other: &Network) -> Vec<PeerId> {
+        let pid_set1: HashSet<_> = self.graph.node_weights().map(|node| node.pid).collect();
+        let pid_set2: HashSet<_> = other.graph.node_weights().map(|node| node.pid).collect();
+        let common_pids: Vec<_> = pid_set1.intersection(&pid_set2).cloned().collect();
+        common_pids
+    }
 }

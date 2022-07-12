@@ -11,8 +11,8 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-use super::face::{Face, FaceState};
-use super::network::{shared_nodes, Network};
+use super::face::{Face, FaceId, FaceState};
+use super::network::{LinkId, Network};
 pub use super::pubsub::*;
 pub use super::queries::*;
 use super::restree::ResourceTreeContainer;
@@ -68,9 +68,9 @@ pub(crate) type ResourceTree =
 pub(crate) type ResourceTreeIndex = Index<ResourceContext>;
 pub(crate) type ResourceTreeWeakIndex = WeakIndex<ResourceContext>;
 pub(super) type Direction = (Arc<FaceState>, KeyExpr<'static>, Option<RoutingContext>);
-pub(super) type Route = HashMap<usize, Direction>;
+pub(super) type Route = HashMap<FaceId, Direction>;
 #[cfg(feature = "complete_n")]
-pub(super) type QueryRoute = HashMap<usize, (Direction, zenoh_protocol_core::Target)>;
+pub(super) type QueryRoute = HashMap<FaceId, (Direction, zenoh_protocol_core::Target)>;
 #[cfg(not(feature = "complete_n"))]
 pub(super) type QueryRoute = Route;
 pub(super) struct TargetQabl {
@@ -93,7 +93,7 @@ pub(crate) struct SessionContext {
 }
 pub(crate) struct ResourceContext {
     pub(super) matches: Vec<ResourceTreeWeakIndex>,
-    pub(super) session_ctxs: VecMap<usize, Arc<SessionContext>>,
+    pub(super) session_ctxs: VecMap<FaceId, Arc<SessionContext>>,
     pub(super) router_subs: VecSet<PeerId>,
     pub(super) peer_subs: VecSet<PeerId>,
     pub(super) router_qabls: VecMap<(PeerId, ZInt), QueryableInfo>,
@@ -136,7 +136,7 @@ pub struct Tables {
     // pub(crate) timer: Timer,
     // pub(crate) queries_default_timeout: Duration,
     pub(crate) restree: ResourceTree,
-    pub(crate) faces: HashMap<usize, Arc<FaceState>>,
+    pub(crate) faces: HashMap<FaceId, Arc<FaceState>>,
     pub(crate) pull_caches_lock: Mutex<()>,
     pub(crate) router_subs: HashSet<ResourceTreeIndex>,
     pub(crate) peer_subs: HashSet<ResourceTreeIndex>,
@@ -231,9 +231,9 @@ impl Tables {
         pid: PeerId,
         whatami: WhatAmI,
         primitives: Arc<dyn Primitives + Send + Sync>,
-        link_id: usize,
+        link_id: LinkId,
     ) -> Weak<FaceState> {
-        let fid = self.face_counter;
+        let fid = FaceId::new(self.face_counter);
         self.face_counter += 1;
         let newface = self
             .faces
@@ -254,7 +254,7 @@ impl Tables {
         whatami: WhatAmI,
         primitives: Arc<dyn Primitives + Send + Sync>,
     ) -> Weak<FaceState> {
-        self.open_net_face(pid, whatami, primitives, 0)
+        self.open_net_face(pid, whatami, primitives, LinkId::new(0))
     }
 
     pub fn close_face(&mut self, face: &Weak<FaceState>) {
@@ -453,7 +453,7 @@ impl Tables {
         restree: &ResourceTree,
         prefix: &ResourceTreeIndex,
         suffix: &'a str,
-        sid: usize,
+        sid: FaceId,
     ) -> KeyExpr<'a> {
         let mut path = restree.reverse_path(prefix, suffix);
         while let Some(res) = path.walk_next(restree.container()) {
@@ -618,10 +618,11 @@ impl Router {
                 peers_autoconnect,
                 routers_autoconnect_gossip,
             ));
-            tables.shared_nodes = shared_nodes(
-                tables.routers_net.as_ref().unwrap(),
-                tables.peers_net.as_ref().unwrap(),
-            );
+            tables.shared_nodes = tables
+                .routers_net
+                .as_ref()
+                .unwrap()
+                .shared_nodes(tables.peers_net.as_ref().unwrap());
         }
     }
 
@@ -659,32 +660,37 @@ impl Router {
                 .as_mut()
                 .unwrap()
                 .add_link(transport.clone()),
-            _ => 0,
+            _ => LinkId::new(0),
         };
 
         if tables.whatami == WhatAmI::Router {
-            tables.shared_nodes = shared_nodes(
-                tables.routers_net.as_ref().unwrap(),
-                tables.peers_net.as_ref().unwrap(),
-            );
+            tables.shared_nodes = tables
+                .routers_net
+                .as_ref()
+                .unwrap()
+                .shared_nodes(tables.peers_net.as_ref().unwrap());
         }
 
-        let handler = Arc::new(LinkStateInterceptor::new(
-            transport.clone(),
-            self.tables.clone(),
-            Face {
+        let handler = {
+            let face = Face {
                 tables: self.tables.clone(),
                 state: tables
                     .open_net_face(
                         transport.get_pid().unwrap(),
                         whatami,
-                        Arc::new(Mux::new(transport)),
+                        Arc::new(Mux::new(transport.clone())),
                         link_id,
                     )
                     .upgrade()
                     .unwrap(),
-            },
-        ));
+            };
+
+            Arc::new(LinkStateInterceptor::new(
+                transport,
+                self.tables.clone(),
+                face,
+            ))
+        };
 
         match (self.whatami, whatami) {
             (WhatAmI::Router, WhatAmI::Router) => {
@@ -704,12 +710,14 @@ impl Router {
 pub struct LinkStateInterceptor {
     pub(crate) transport: TransportUnicast,
     pub(crate) tables: Arc<RwLock<Tables>>,
-    pub(crate) face: Face,
-    pub(crate) demux: DeMux<Face>,
+    pub(crate) face: Arc<Face>,
+    pub(crate) demux: DeMux<Arc<Face>>,
 }
 
 impl LinkStateInterceptor {
     fn new(transport: TransportUnicast, tables: Arc<RwLock<Tables>>, face: Face) -> Self {
+        let face = Arc::new(face);
+
         LinkStateInterceptor {
             transport,
             tables,
@@ -743,10 +751,11 @@ impl TransportPeerEventHandler for LinkStateInterceptor {
                                 );
                             }
 
-                            tables.shared_nodes = shared_nodes(
-                                tables.routers_net.as_ref().unwrap(),
-                                tables.peers_net.as_ref().unwrap(),
-                            );
+                            tables.shared_nodes = tables
+                                .routers_net
+                                .as_ref()
+                                .unwrap()
+                                .shared_nodes(tables.peers_net.as_ref().unwrap());
 
                             tables.schedule_compute_trees(self.tables.clone(), WhatAmI::Router);
                         }
@@ -764,10 +773,11 @@ impl TransportPeerEventHandler for LinkStateInterceptor {
                             }
 
                             if tables.whatami == WhatAmI::Router {
-                                tables.shared_nodes = shared_nodes(
-                                    tables.routers_net.as_ref().unwrap(),
-                                    tables.peers_net.as_ref().unwrap(),
-                                );
+                                tables.shared_nodes = tables
+                                    .routers_net
+                                    .as_ref()
+                                    .unwrap()
+                                    .shared_nodes(tables.peers_net.as_ref().unwrap());
                             }
 
                             tables.schedule_compute_trees(self.tables.clone(), WhatAmI::Peer);
@@ -801,10 +811,11 @@ impl TransportPeerEventHandler for LinkStateInterceptor {
                             queries_remove_node(&mut tables, &removed_node.pid, WhatAmI::Router);
                         }
 
-                        tables.shared_nodes = shared_nodes(
-                            tables.routers_net.as_ref().unwrap(),
-                            tables.peers_net.as_ref().unwrap(),
-                        );
+                        tables.shared_nodes = tables
+                            .routers_net
+                            .as_ref()
+                            .unwrap()
+                            .shared_nodes(tables.peers_net.as_ref().unwrap());
 
                         tables.schedule_compute_trees(tables_ref.clone(), WhatAmI::Router);
                     }
@@ -819,10 +830,11 @@ impl TransportPeerEventHandler for LinkStateInterceptor {
                         }
 
                         if tables.whatami == WhatAmI::Router {
-                            tables.shared_nodes = shared_nodes(
-                                tables.routers_net.as_ref().unwrap(),
-                                tables.peers_net.as_ref().unwrap(),
-                            );
+                            tables.shared_nodes = tables
+                                .routers_net
+                                .as_ref()
+                                .unwrap()
+                                .shared_nodes(tables.peers_net.as_ref().unwrap());
                         }
 
                         tables.schedule_compute_trees(tables_ref.clone(), WhatAmI::Peer);

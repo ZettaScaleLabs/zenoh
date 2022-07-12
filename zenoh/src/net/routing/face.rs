@@ -11,6 +11,7 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
+use super::network::LinkId;
 use super::router::*;
 use async_std::sync::Arc;
 use std::collections::{HashMap, HashSet};
@@ -24,12 +25,28 @@ use zenoh_protocol_core::{
 };
 use zenoh_transport::Primitives;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct FaceId(usize);
+
+impl FaceId {
+    pub fn new(id: usize) -> Self {
+        Self(id)
+    }
+}
+
+impl fmt::Display for FaceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 pub struct FaceState {
-    pub(super) id: usize,
+    pub(super) id: FaceId,
     pub(super) pid: PeerId,
     pub(super) whatami: WhatAmI,
     pub(super) primitives: Arc<dyn Primitives + Send + Sync>,
-    pub(super) link_id: usize,
+    pub(super) link_id: LinkId,
     pub(super) local_mappings: HashMap<ZInt, ResourceTreeIndex>,
     pub(super) remote_mappings: HashMap<ZInt, ResourceTreeIndex>,
     pub(super) local_subs: HashSet<ResourceTreeIndex>,
@@ -42,11 +59,11 @@ pub struct FaceState {
 
 impl FaceState {
     pub(super) fn new(
-        id: usize,
+        id: FaceId,
         pid: PeerId,
         whatami: WhatAmI,
         primitives: Arc<dyn Primitives + Send + Sync>,
-        link_id: usize,
+        link_id: LinkId,
     ) -> Arc<FaceState> {
         Arc::new(FaceState {
             id,
@@ -157,7 +174,6 @@ impl fmt::Display for FaceState {
     }
 }
 
-#[derive(Clone)]
 pub struct Face {
     pub(crate) tables: Arc<RwLock<Tables>>,
     pub(crate) state: Arc<FaceState>,
