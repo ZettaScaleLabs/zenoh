@@ -130,7 +130,7 @@ impl<'a> PublicationCache<'a> {
         if conf.session.hlc().is_none() {
             bail!(
                 "Failed requirement for PublicationCache on {}: \
-                     the Session is not configured with 'add_timestamp=true'",
+                     the Session is not configured with 'timestamping/enabled=true'",
                 key_expr
             )
         }
