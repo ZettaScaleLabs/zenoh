@@ -17,46 +17,11 @@ use zenoh_protocol::network::NetworkMessage;
 
 impl TransportUnicastUniversal {
     fn schedule_on_link(&self, msg: NetworkMessage) -> bool {
-        macro_rules! zpush {
-            ($guard:expr, $pipeline:expr, $msg:expr) => {
-                // Drop the guard before the push_zenoh_message since
-                // the link could be congested and this operation could
-                // block for fairly long time
-                let pl = $pipeline.clone();
-                drop($guard);
-                log::trace!("Scheduled: {:?}", $msg);
-                return pl.push_network_message($msg);
-            };
+        let ls = zread!(self.links);
+        for l in ls.iter() {
+            l.pipeline.push_network_message(msg.clone());
         }
-
-        let guard = zread!(self.links);
-        // First try to find the best match between msg and link reliability
-        if let Some(pl) = guard
-            .iter()
-            .filter_map(|tl| {
-                if msg.is_reliable() == tl.link.link.is_reliable() {
-                    Some(&tl.pipeline)
-                } else {
-                    None
-                }
-            })
-            .next()
-        {
-            zpush!(guard, pl, msg);
-        }
-
-        // No best match found, take the first available link
-        if let Some(pl) = guard.iter().map(|tl| &tl.pipeline).next() {
-            zpush!(guard, pl, msg);
-        }
-
-        // No Link found
-        log::trace!(
-            "Message dropped because the transport has no links: {}",
-            msg
-        );
-
-        false
+        true
     }
 
     #[allow(unused_mut)] // When feature "shared-memory" is not enabled
