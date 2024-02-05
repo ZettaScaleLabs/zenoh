@@ -139,9 +139,12 @@ impl TransportUnicastUniversal {
 
         let c_t = t.links_tx.clone();
         task::spawn(async move {
-            let _ =
-                crate::unicast::universal::link::tx_task(consumer, c_t, Duration::from_secs(10))
-                    .await;
+            let _ = crate::unicast::universal::link::tx_task(
+                consumer,
+                c_t,
+                Duration::from_millis(2_500),
+            )
+            .await;
         });
 
         Ok(t)
