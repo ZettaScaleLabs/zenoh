@@ -14,21 +14,27 @@
 #[cfg(feature = "stats")]
 use crate::stats::TransportStats;
 use crate::{
-    common::priority::{TransportPriorityRx, TransportPriorityTx},
+    common::{
+        pipeline::{TransmissionPipeline, TransmissionPipelineConf, TransmissionPipelineProducer},
+        priority::{TransportPriorityRx, TransportPriorityTx},
+    },
     unicast::{
-        link::{LinkUnicastWithOpenAck, TransportLinkUnicastDirection},
+        link::{LinkUnicastWithOpenAck, TransportLinkUnicastDirection, TransportLinkUnicastTx},
         transport_unicast_inner::{AddLinkResult, TransportUnicastTrait},
         universal::link::TransportLinkUnicastUniversal,
         TransportConfigUnicast,
     },
     TransportManager, TransportPeerEventHandler,
 };
-use async_std::sync::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
+use async_std::{
+    sync::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard, RwLock as AsyncRwLock},
+    task,
+};
 use async_trait::async_trait;
 use std::fmt::DebugStruct;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use zenoh_core::{zasynclock, zcondfeat, zread, zwrite};
+use zenoh_core::{zasynclock, zasyncwrite, zcondfeat, zread, zwrite};
 use zenoh_link::Link;
 use zenoh_protocol::{
     core::{Priority, WhatAmI, ZenohId},
@@ -36,13 +42,6 @@ use zenoh_protocol::{
     transport::{close, Close, PrioritySn, TransportMessage, TransportSn},
 };
 use zenoh_result::{bail, zerror, ZResult};
-
-macro_rules! zlinkget {
-    ($guard:expr, $link:expr) => {
-        // Compare LinkUnicast link to not compare TransportLinkUnicast direction
-        $guard.iter().find(|tl| tl.link == $link)
-    };
-}
 
 macro_rules! zlinkgetmut {
     ($guard:expr, $link:expr) => {
@@ -71,8 +70,11 @@ pub(crate) struct TransportUnicastUniversal {
     pub(super) priority_tx: Arc<[TransportPriorityTx]>,
     // Rx priorities
     pub(super) priority_rx: Arc<[TransportPriorityRx]>,
+    // Pipeline producer
+    pub(super) pipeline: Arc<TransmissionPipelineProducer>,
     // The links associated to the channel
     pub(super) links: Arc<RwLock<Box<[TransportLinkUnicastUniversal]>>>,
+    pub(super) links_tx: Arc<AsyncRwLock<Vec<TransportLinkUnicastTx>>>,
     // The callback
     pub(super) callback: Arc<RwLock<Option<Arc<dyn TransportPeerEventHandler>>>>,
     // Lock used to ensure no race in add_link method
@@ -115,17 +117,31 @@ impl TransportUnicastUniversal {
         #[cfg(feature = "stats")]
         let stats = Arc::new(TransportStats::new(Some(manager.get_stats().clone())));
 
+        // The pipeline
+        let mut pc = TransmissionPipelineConf::default();
+        pc.batch.is_streamed = true;
+        let (producer, consumer) = TransmissionPipeline::make(pc, priority_tx.as_slice());
+
         let t = Arc::new(TransportUnicastUniversal {
             manager,
             config,
             priority_tx: priority_tx.into_boxed_slice().into(),
             priority_rx: priority_rx.into_boxed_slice().into(),
+            pipeline: Arc::new(producer),
             links: Arc::new(RwLock::new(vec![].into_boxed_slice())),
+            links_tx: Arc::new(AsyncRwLock::new(vec![])),
             add_link_lock: Arc::new(AsyncMutex::new(())),
             callback: Arc::new(RwLock::new(None)),
             alive: Arc::new(AsyncMutex::new(false)),
             #[cfg(feature = "stats")]
             stats,
+        });
+
+        let c_t = t.links_tx.clone();
+        task::spawn(async move {
+            let _ =
+                crate::unicast::universal::link::tx_task(consumer, c_t, Duration::from_secs(10))
+                    .await;
         });
 
         Ok(t)
@@ -222,7 +238,6 @@ impl TransportUnicastUniversal {
         match zlinkgetmut!(guard, *link) {
             Some(l) => {
                 l.stop_rx();
-                l.stop_tx();
                 Ok(())
             }
             None => {
@@ -308,8 +323,7 @@ impl TransportUnicastTrait for TransportUnicastUniversal {
 
         // Wrap the link
         let (link, ack) = link.unpack();
-        let (mut link, consumer) =
-            TransportLinkUnicastUniversal::new(self, link, &self.priority_tx);
+        let mut link = TransportLinkUnicastUniversal::new(link, &self.priority_tx);
 
         // Add the link to the channel
         let mut guard = zwrite!(self.links);
@@ -324,16 +338,7 @@ impl TransportUnicastTrait for TransportUnicastUniversal {
         // create a callback to start the link
         let transport = self.clone();
         let start_link = Box::new(move || {
-            // Start the TX loop
-            let keep_alive =
-                self.manager.config.unicast.lease / self.manager.config.unicast.keep_alive as u32;
-            link.start_tx(
-                transport.clone(),
-                consumer,
-                &self.manager.tx_executor,
-                keep_alive,
-            );
-
+            task::block_on(async { zasyncwrite!(self.links_tx).push(link.link.tx()) });
             // Start the RX loop
             link.start_rx(transport, other_lease);
         });
@@ -388,11 +393,6 @@ impl TransportUnicastTrait for TransportUnicastUniversal {
     async fn close_link(&self, link: Link, reason: u8) -> ZResult<()> {
         log::trace!("Closing link {} with peer: {}", link, self.config.zid);
 
-        let transport_link_pipeline = zlinkget!(zread!(self.links), link)
-            .ok_or_else(|| zerror!("Cannot close Link {:?}: not found", link))?
-            .pipeline
-            .clone();
-
         // Close message to be sent on the target link
         let msg: TransportMessage = Close {
             reason,
@@ -400,7 +400,8 @@ impl TransportUnicastTrait for TransportUnicastUniversal {
         }
         .into();
 
-        transport_link_pipeline.push_transport_message(msg, Priority::Background);
+        self.pipeline
+            .push_transport_message(msg, Priority::Background);
 
         // Remove the link from the channel
         self.del_link(link).await
@@ -409,23 +410,14 @@ impl TransportUnicastTrait for TransportUnicastUniversal {
     async fn close(&self, reason: u8) -> ZResult<()> {
         log::trace!("Closing transport with peer: {}", self.config.zid);
 
-        let mut pipelines = zread!(self.links)
-            .iter()
-            .map(|sl| sl.pipeline.clone())
-            .collect::<Vec<_>>();
-        for p in pipelines.drain(..) {
-            // Close message to be sent on all the links
-            // session should always be true for user-triggered close. However, in case of
-            // multiple links, it is safer to close all the links first. When no links are left,
-            // the transport is then considered closed.
-            let msg: TransportMessage = Close {
-                reason,
-                session: false,
-            }
-            .into();
-
-            p.push_transport_message(msg, Priority::Background);
+        let msg: TransportMessage = Close {
+            reason,
+            session: false,
         }
+        .into();
+        self.pipeline
+            .push_transport_message(msg, Priority::Background);
+
         // Terminate and clean up the transport
         self.delete().await
     }
@@ -438,7 +430,7 @@ impl TransportUnicastTrait for TransportUnicastUniversal {
     /*                TX                 */
     /*************************************/
     fn schedule(&self, msg: NetworkMessage) -> ZResult<()> {
-        match self.internal_schedule(msg) {
+        match self.pipeline.push_network_message(msg) {
             true => Ok(()),
             false => bail!("error scheduling message!"),
         }

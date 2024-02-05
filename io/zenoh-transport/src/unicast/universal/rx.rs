@@ -16,6 +16,7 @@ use crate::{
     common::{
         batch::{Decode, RBatch},
         priority::TransportChannelRx,
+        seq_num::SeqNumGenerator,
     },
     unicast::transport_unicast_inner::TransportUnicastTrait,
     TransportPeerEventHandler,
@@ -96,7 +97,10 @@ impl TransportUnicastUniversal {
             Reliability::BestEffort => zlock!(c.best_effort),
         };
 
-        self.verify_sn(sn, &mut guard)?;
+        let cont = self.verify_sn(sn, &mut guard);
+        if !cont {
+            return Ok(());
+        }
 
         let callback = zread!(self.callback).clone();
         if let Some(callback) = callback.as_ref() {
@@ -139,7 +143,10 @@ impl TransportUnicastUniversal {
             Reliability::BestEffort => zlock!(c.best_effort),
         };
 
-        self.verify_sn(sn, &mut guard)?;
+        let cont = self.verify_sn(sn, &mut guard);
+        if !cont {
+            return Ok(());
+        }
 
         if guard.defrag.is_empty() {
             let _ = guard.defrag.sync(sn);
@@ -167,28 +174,19 @@ impl TransportUnicastUniversal {
         Ok(())
     }
 
-    fn verify_sn(
-        &self,
-        sn: TransportSn,
-        guard: &mut MutexGuard<'_, TransportChannelRx>,
-    ) -> ZResult<()> {
-        let precedes = guard.sn.roll(sn)?;
+    fn verify_sn(&self, sn: TransportSn, guard: &mut MutexGuard<'_, TransportChannelRx>) -> bool {
+        let precedes = guard.sn.roll(sn).unwrap_or(false);
         if !precedes {
-            log::debug!(
+            let mut tmp = SeqNumGenerator::make(sn, zenoh_protocol::core::Bits::U32).unwrap();
+            tmp.get();
+            log::trace!(
                 "Transport: {}. Frame with invalid SN dropped: {}. Expected: {}.",
                 self.config.zid,
                 sn,
-                guard.sn.get()
+                tmp.get()
             );
-            // Drop the fragments if needed
-            if !guard.defrag.is_empty() {
-                guard.defrag.clear();
-            }
-            // Keep reading
-            return Ok(());
         }
-
-        Ok(())
+        precedes
     }
 
     pub(super) fn read_messages(&self, mut batch: RBatch, link: &Link) -> ZResult<()> {
