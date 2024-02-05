@@ -15,6 +15,7 @@
 //! Queryable primitives.
 
 use crate::handlers::{locked, DefaultHandler};
+use crate::net::primitives::Primitives;
 use crate::prelude::*;
 #[zenoh_macros::unstable]
 use crate::query::ReplyKeyExpr;
@@ -35,7 +36,6 @@ use zenoh_protocol::zenoh::ext::ValueType;
 use zenoh_protocol::zenoh::reply::ext::ConsolidationType;
 use zenoh_protocol::zenoh::{self, ResponseBody};
 use zenoh_result::ZResult;
-use zenoh_transport::primitives::Primitives;
 
 pub(crate) struct QueryInner {
     /// The key expression of this Query.
@@ -155,6 +155,7 @@ impl fmt::Display for Query {
 
 /// A builder returned by [`Query::reply()`](Query::reply).
 #[must_use = "Resolvables do nothing unless you resolve them using the `res` method from either `SyncResolve` or `AsyncResolve`"]
+#[derive(Debug)]
 pub struct ReplyBuilder<'a> {
     query: &'a Query,
     result: Result<Sample, Value>,
@@ -229,7 +230,7 @@ impl SyncResolve for ReplyBuilder<'_> {
                         {
                             Some(zenoh::reply::ext::SourceInfoType {
                                 zid: data_info.source_id.unwrap_or_default(),
-                                eid: 0, // TODO
+                                eid: 0, // @TODO use proper EntityId (#703)
                                 sn: data_info.source_sn.unwrap_or_default() as u32,
                             })
                         } else {
@@ -246,7 +247,7 @@ impl SyncResolve for ReplyBuilder<'_> {
                     ext_tstamp: None,
                     ext_respid: Some(response::ext::ResponderIdType {
                         zid: self.query.inner.zid,
-                        eid: 0, // TODO
+                        eid: 0, // @TODO use proper EntityId (#703)
                     }),
                 });
                 Ok(())
@@ -276,7 +277,7 @@ impl SyncResolve for ReplyBuilder<'_> {
                     ext_tstamp: None,
                     ext_respid: Some(response::ext::ResponderIdType {
                         zid: self.query.inner.zid,
-                        eid: 0, // TODO
+                        eid: 0, // @TODO use proper EntityId (#703)
                     }),
                 });
                 Ok(())
