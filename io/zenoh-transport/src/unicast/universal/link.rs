@@ -127,15 +127,16 @@ pub(super) async fn tx_task(
     loop {
         let res = pipeline.pull().timeout(keep_alive).await;
         let mut ls = zasyncwrite!(links);
-        while ls.is_empty() {
-            log::trace!("No links available for TX");
-            drop(ls);
-            task::sleep(Duration::from_millis(1)).await;
-            ls = zasyncwrite!(links);
-        }
         match res {
             Ok(res) => match res {
                 Some((mut batch, priority)) => {
+                    while ls.is_empty() {
+                        log::trace!("No links available for TX");
+                        drop(ls);
+                        task::sleep(Duration::from_millis(1)).await;
+                        ls = zasyncwrite!(links);
+                    }
+
                     for l in ls.as_mut_slice() {
                         l.send_batch(&mut batch).await?;
                     }
