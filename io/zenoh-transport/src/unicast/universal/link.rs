@@ -121,11 +121,33 @@ impl TransportLinkUnicastUniversal {
 /*************************************/
 /*              TASKS                */
 /*************************************/
+
 pub(super) async fn tx_task(
     mut pipeline: TransmissionPipelineConsumer,
     links: Arc<AsyncRwLock<Vec<TransportLinkUnicastTx>>>,
     keep_alive: Duration,
 ) -> ZResult<()> {
+    #[derive(Default, Debug)]
+    enum Disc {
+        #[default]
+        Sequential,
+        Parallel,
+        Spawn,
+    }
+
+    let env = std::env::var("ZENOH_TX_DISC");
+    log::debug!("Env: {env:?}");
+    let disc = match env {
+        Ok(d) => match d.as_str() {
+            "sequential" => Disc::Sequential,
+            "parallel" => Disc::Parallel,
+            "spawn" => Disc::Spawn,
+            _ => Disc::default(),
+        },
+        Err(_) => Disc::default(),
+    };
+    log::debug!("Tx disc: {disc:?}");
+
     loop {
         let res = pipeline.pull().timeout(keep_alive).await;
         let mut ls = zasyncread!(links);
@@ -153,30 +175,34 @@ pub(super) async fn tx_task(
                     };
 
                     // Send the message on the links
-                    // -
-
-                    // Sequential
-                    // for l in ls.as_slice() {
-                    //     let _ = l.inner.link.write_all(batch.as_slice()).await;
-                    // }
-
-                    // Parallel but blocking
-                    // use futures::stream::StreamExt;
-                    // let _ = futures::stream::iter(0..ls.len())
-                    //     .map(|i| ls[i].inner.link.write_all(batch.as_slice()))
-                    //     .buffer_unordered(ls.len())
-                    //     .collect::<Vec<_>>()
-                    //     .await; // Ignore errors
-
-                    // Parallel spawn
-                    for l in ls.iter() {
-                        let c_b = batch.clone();
-                        let c_l = l.inner.link.clone();
-                        task::spawn(async move {
-                            if let Err(e) = c_l.write_all(c_b.as_slice()).await {
-                                log::debug!("Write failed on {:?}: {}", c_l, e);
+                    match disc {
+                        Disc::Sequential => {
+                            // Sequential
+                            for l in ls.as_slice() {
+                                let _ = l.inner.link.write_all(batch.as_slice()).await;
                             }
-                        });
+                        }
+                        Disc::Parallel => {
+                            // Parallel but blocking
+                            use futures::stream::StreamExt;
+                            let _ = futures::stream::iter(0..ls.len())
+                                .map(|i| ls[i].inner.link.write_all(batch.as_slice()))
+                                .buffer_unordered(ls.len())
+                                .collect::<Vec<_>>()
+                                .await; // Ignore errors
+                        }
+                        Disc::Spawn => {
+                            // Parallel spawn
+                            for l in ls.iter() {
+                                let c_b = batch.clone();
+                                let c_l = l.inner.link.clone();
+                                task::spawn(async move {
+                                    if let Err(e) = c_l.write_all(c_b.as_slice()).await {
+                                        log::debug!("Write failed on {:?}: {}", c_l, e);
+                                    }
+                                });
+                            }
+                        }
                     }
 
                     // Reinsert the batch into the queue
