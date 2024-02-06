@@ -119,7 +119,18 @@ impl TransportUnicastUniversal {
 
         // The pipeline
         let mut pc = TransmissionPipelineConf::default();
-        pc.batch.is_streamed = true;
+
+        let env = std::env::var("ZENOH_TX_STREAMED");
+        log::debug!("ZENOH_TX_STREAMED: {env:?}");
+        pc.batch.is_streamed = match env {
+            Ok(d) => match d.as_str() {
+                "true" => true,
+                "false" => false,
+                _ => true,
+            },
+            Err(_) => true,
+        };
+
         let (producer, consumer) = TransmissionPipeline::make(pc, priority_tx.as_slice());
 
         let t = Arc::new(TransportUnicastUniversal {

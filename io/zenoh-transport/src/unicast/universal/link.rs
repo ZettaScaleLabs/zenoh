@@ -136,7 +136,7 @@ pub(super) async fn tx_task(
     }
 
     let env = std::env::var("ZENOH_TX_DISC");
-    log::debug!("Env: {env:?}");
+    log::debug!("ZENOH_TX_DISC: {env:?}");
     let disc = match env {
         Ok(d) => match d.as_str() {
             "sequential" => Disc::Sequential,
