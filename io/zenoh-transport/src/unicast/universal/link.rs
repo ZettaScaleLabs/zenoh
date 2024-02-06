@@ -16,7 +16,9 @@ use super::transport::TransportUnicastUniversal;
 use crate::common::stats::TransportStats;
 use crate::{
     common::{
-        batch::RBatch, pipeline::TransmissionPipelineConsumer, priority::TransportPriorityTx,
+        batch::{Finalize, RBatch},
+        pipeline::TransmissionPipelineConsumer,
+        priority::TransportPriorityTx,
     },
     unicast::link::{TransportLinkUnicast, TransportLinkUnicastRx, TransportLinkUnicastTx},
 };
@@ -30,7 +32,7 @@ use std::{
     time::Duration,
 };
 use zenoh_buffers::ZSliceBuffer;
-use zenoh_core::{zasyncwrite, zwrite};
+use zenoh_core::{zasyncread, zasyncwrite, zwrite};
 use zenoh_protocol::transport::{KeepAlive, TransportMessage};
 use zenoh_result::{zerror, ZResult};
 use zenoh_sync::{RecyclingObject, RecyclingObjectPool, Signal};
@@ -126,7 +128,7 @@ pub(super) async fn tx_task(
 ) -> ZResult<()> {
     loop {
         let res = pipeline.pull().timeout(keep_alive).await;
-        let mut ls = zasyncwrite!(links);
+        let mut ls = zasyncread!(links);
         match res {
             Ok(res) => match res {
                 Some((mut batch, priority)) => {
@@ -134,11 +136,47 @@ pub(super) async fn tx_task(
                         log::trace!("No links available for TX");
                         drop(ls);
                         task::sleep(Duration::from_millis(1)).await;
-                        ls = zasyncwrite!(links);
+                        ls = zasyncread!(links);
                     }
 
-                    for l in ls.as_mut_slice() {
-                        l.send_batch(&mut batch).await?;
+                    #[cfg(feature = "transport_compression")]
+                    {
+                        batch.config.is_compression = false;
+                    }
+
+                    let res = batch
+                        .finalize(None)
+                        .map_err(|_| zerror!("Batch finalization error"))?;
+
+                    if let Finalize::Buffer = res {
+                        panic!("Compression is not supported");
+                    };
+
+                    // Send the message on the links
+                    // -
+
+                    // Sequential
+                    // for l in ls.as_mut_slice() {
+                    //     l.inner.link.write_all(bytes).await;
+                    // }
+
+                    // Parallel but blocking
+                    // use futures::stream::StreamExt;
+                    // let _ = futures::stream::iter(0..ls.len())
+                    //     .map(|i| ls[i].inner.link.write_all(bytes))
+                    //     .buffer_unordered(ls.len())
+                    //     .collect::<Vec<_>>()
+                    //     .await; // Ignore errors
+
+                    // Parallel spawn
+                    for l in ls.iter() {
+                        let c_b = batch.clone();
+                        let c_l = l.inner.link.clone();
+                        task::spawn(async move {
+                            if let Err(e) = c_l.write_all(c_b.as_slice()).await {
+                                log::debug!("Write failed on {:?}: {}", c_l, e);
+                            }
+                        });
                     }
 
                     // Reinsert the batch into the queue
@@ -148,7 +186,8 @@ pub(super) async fn tx_task(
             },
             Err(_) => {
                 let message: TransportMessage = KeepAlive.into();
-
+                drop(ls);
+                let mut ls = zasyncwrite!(links);
                 for l in ls.as_mut_slice() {
                     let _ = l.send(&message).await?;
                 }

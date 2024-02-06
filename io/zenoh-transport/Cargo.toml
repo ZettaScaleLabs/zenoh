@@ -54,6 +54,7 @@ async-global-executor = { workspace = true }
 async-std = { workspace = true }
 async-trait = { workspace = true }
 flume = { workspace = true }
+futures = { workspace = true }
 log = { workspace = true }
 lz4_flex = { workspace = true }
 paste = { workspace = true }
