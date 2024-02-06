@@ -156,14 +156,14 @@ pub(super) async fn tx_task(
                     // -
 
                     // Sequential
-                    // for l in ls.as_mut_slice() {
-                    //     l.inner.link.write_all(bytes).await;
+                    // for l in ls.as_slice() {
+                    //     let _ = l.inner.link.write_all(batch.as_slice()).await;
                     // }
 
                     // Parallel but blocking
                     // use futures::stream::StreamExt;
                     // let _ = futures::stream::iter(0..ls.len())
-                    //     .map(|i| ls[i].inner.link.write_all(bytes))
+                    //     .map(|i| ls[i].inner.link.write_all(batch.as_slice()))
                     //     .buffer_unordered(ls.len())
                     //     .collect::<Vec<_>>()
                     //     .await; // Ignore errors
