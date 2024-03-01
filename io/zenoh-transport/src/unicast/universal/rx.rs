@@ -206,7 +206,9 @@ impl TransportUnicastUniversal {
             match msg.body {
                 TransportBody::Frame(msg) => self.handle_frame(msg)?,
                 TransportBody::Fragment(fragment) => {
-                    let _ = self.handle_fragment(fragment);
+                    if let Err(e) = self.handle_fragment(fragment) {
+                        log::debug!("{}", e);
+                    }
                 }
                 TransportBody::Close(Close { reason, session }) => {
                     self.handle_close(link, reason, session)?
