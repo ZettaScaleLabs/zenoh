@@ -178,6 +178,7 @@ impl TransportUnicastUniversal {
         let precedes = guard.sn.roll(sn).unwrap_or(false);
         if !precedes {
             let mut tmp = SeqNumGenerator::make(sn, zenoh_protocol::core::Bits::U32).unwrap();
+            guard.defrag.clear();
             tmp.get();
             log::trace!(
                 "Transport: {}. Frame with invalid SN dropped: {}. Expected: {}.",
@@ -204,7 +205,11 @@ impl TransportUnicastUniversal {
 
             match msg.body {
                 TransportBody::Frame(msg) => self.handle_frame(msg)?,
-                TransportBody::Fragment(fragment) => self.handle_fragment(fragment)?,
+                TransportBody::Fragment(fragment) => {
+                    if let Err(e) = self.handle_fragment(fragment) {
+                        log::debug!("{}", e);
+                    }
+                }
                 TransportBody::Close(Close { reason, session }) => {
                     self.handle_close(link, reason, session)?
                 }
