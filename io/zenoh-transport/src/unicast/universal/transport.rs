@@ -352,9 +352,11 @@ impl TransportUnicastTrait for TransportUnicastUniversal {
         // create a callback to start the link
         let transport = self.clone();
         let start_link = Box::new(move || {
-            task::block_on(async { zasyncwrite!(self.links_tx).push(link.link.tx()) });
-            // Start the RX loop
-            link.start_rx(transport, other_lease);
+            task::spawn(async move {
+                zasyncwrite!(transport.links_tx).push(link.link.tx());
+                // Start the RX loop
+                link.start_rx(transport, other_lease);
+            });
         });
 
         Ok((start_link, ack))
