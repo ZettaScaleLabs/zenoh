@@ -157,7 +157,7 @@ pub(super) async fn tx_task(
                     while ls.is_empty() {
                         log::trace!("No links available for TX");
                         drop(ls);
-                        task::sleep(Duration::from_millis(1)).await;
+                        task::sleep(Duration::from_millis(100)).await;
                         ls = zasyncread!(links);
                     }
 
