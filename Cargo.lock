@@ -4847,6 +4847,7 @@ dependencies = [
  "async-trait",
  "env_logger",
  "flume",
+ "futures",
  "log",
  "lz4_flex",
  "paste",

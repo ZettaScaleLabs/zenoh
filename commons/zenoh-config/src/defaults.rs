@@ -105,7 +105,7 @@ impl Default for TransportUnicastConf {
             accept_timeout: 10_000,
             accept_pending: 100,
             max_sessions: 1_000,
-            max_links: 1,
+            max_links: 100,
             lowlatency: false,
             qos: QoSUnicastConf::default(),
             compression: CompressionUnicastConf::default(),

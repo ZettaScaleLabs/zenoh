@@ -162,7 +162,7 @@ impl TransportLinkUnicastTx {
                 .as_slice(),
         };
 
-        // log::trace!("WBytes: {:02x?}", bytes);
+        log::trace!("Link: {:?} - WBytes: {}", self, bytes.len());
 
         // Send the message on the link
         self.inner.link.write_all(bytes).await?;
@@ -190,7 +190,7 @@ impl fmt::Display for TransportLinkUnicastTx {
 
 impl fmt::Debug for TransportLinkUnicastTx {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TransportLinkUnicastRx")
+        f.debug_struct("TransportLinkUnicastTx")
             .field("link", &self.inner.link)
             .field("config", &self.inner.config)
             .field("buffer", &self.buffer.as_ref().map(|b| b.capacity()))
@@ -230,7 +230,7 @@ impl TransportLinkUnicastRx {
             self.link.read(into.as_mut_slice()).await?
         };
 
-        // log::trace!("RBytes: {:02x?}", &into.as_slice()[0..end]);
+        log::trace!("Link: {:?} - RBytes: {}", self, end);
 
         let buffer = ZSlice::make(Arc::new(into), 0, end)
             .map_err(|_| zerror!("{ERR}{self}. ZSlice index(es) out of bounds"))?;

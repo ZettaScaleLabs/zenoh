@@ -16,25 +16,23 @@ use super::transport::TransportUnicastUniversal;
 use crate::common::stats::TransportStats;
 use crate::{
     common::{
-        batch::{BatchConfig, RBatch},
-        pipeline::{
-            TransmissionPipeline, TransmissionPipelineConf, TransmissionPipelineConsumer,
-            TransmissionPipelineProducer,
-        },
+        batch::{Finalize, RBatch},
+        pipeline::TransmissionPipelineConsumer,
         priority::TransportPriorityTx,
     },
     unicast::link::{TransportLinkUnicast, TransportLinkUnicastRx, TransportLinkUnicastTx},
-    TransportExecutor,
 };
 use async_std::prelude::FutureExt;
-use async_std::task;
-use async_std::task::JoinHandle;
+use async_std::{
+    sync::RwLock as AsyncRwLock,
+    task::{self, JoinHandle},
+};
 use std::{
     sync::{Arc, RwLock},
     time::Duration,
 };
 use zenoh_buffers::ZSliceBuffer;
-use zenoh_core::zwrite;
+use zenoh_core::{zasyncread, zasyncwrite, zwrite};
 use zenoh_protocol::transport::{KeepAlive, TransportMessage};
 use zenoh_result::{zerror, ZResult};
 use zenoh_sync::{RecyclingObject, RecyclingObjectPool, Signal};
@@ -50,33 +48,13 @@ pub(super) struct Tasks {
 pub(super) struct TransportLinkUnicastUniversal {
     // The underlying link
     pub(super) link: TransportLinkUnicast,
-    // The transmission pipeline
-    pub(super) pipeline: TransmissionPipelineProducer,
     // The task handling substruct
     tasks: Arc<Tasks>,
 }
 
 impl TransportLinkUnicastUniversal {
-    pub(super) fn new(
-        transport: &TransportUnicastUniversal,
-        link: TransportLinkUnicast,
-        priority_tx: &[TransportPriorityTx],
-    ) -> (Self, TransmissionPipelineConsumer) {
+    pub(super) fn new(link: TransportLinkUnicast, priority_tx: &[TransportPriorityTx]) -> Self {
         assert!(!priority_tx.is_empty());
-
-        let config = TransmissionPipelineConf {
-            batch: BatchConfig {
-                mtu: link.config.batch.mtu,
-                is_streamed: link.link.is_streamed(),
-                #[cfg(feature = "transport_compression")]
-                is_compression: link.config.batch.is_compression,
-            },
-            queue_size: transport.manager.config.queue_size,
-            backoff: transport.manager.config.queue_backoff,
-        };
-
-        // The pipeline
-        let (producer, consumer) = TransmissionPipeline::make(config, priority_tx);
 
         let tasks = Arc::new(Tasks {
             handle_tx: RwLock::new(None),
@@ -84,52 +62,11 @@ impl TransportLinkUnicastUniversal {
             handle_rx: RwLock::new(None),
         });
 
-        let result = Self {
-            link,
-            pipeline: producer,
-            tasks,
-        };
-
-        (result, consumer)
+        Self { link, tasks }
     }
 }
 
 impl TransportLinkUnicastUniversal {
-    pub(super) fn start_tx(
-        &mut self,
-        transport: TransportUnicastUniversal,
-        consumer: TransmissionPipelineConsumer,
-        executor: &TransportExecutor,
-        keep_alive: Duration,
-    ) {
-        let mut guard = zwrite!(self.tasks.handle_tx);
-        if guard.is_none() {
-            // Spawn the TX task
-            let mut tx = self.link.tx();
-            let handle = executor.spawn(async move {
-                let res = tx_task(
-                    consumer,
-                    &mut tx,
-                    keep_alive,
-                    #[cfg(feature = "stats")]
-                    transport.stats.clone(),
-                )
-                .await;
-                if let Err(e) = res {
-                    log::debug!("{}", e);
-                    // Spawn a task to avoid a deadlock waiting for this same task
-                    // to finish in the close() joining its handle
-                    task::spawn(async move { transport.del_link(tx.inner.link()).await });
-                }
-            });
-            *guard = Some(handle);
-        }
-    }
-
-    pub(super) fn stop_tx(&mut self) {
-        self.pipeline.disable();
-    }
-
     pub(super) fn start_rx(&mut self, transport: TransportUnicastUniversal, lease: Duration) {
         let mut guard = zwrite!(self.tasks.handle_rx);
         if guard.is_none() {
@@ -165,7 +102,6 @@ impl TransportLinkUnicastUniversal {
 
     pub(super) async fn close(mut self) -> ZResult<()> {
         log::trace!("{}: closing", self.link);
-        self.stop_tx();
         self.stop_rx();
 
         let handle_tx = zwrite!(self.tasks.handle_tx).take();
@@ -185,22 +121,88 @@ impl TransportLinkUnicastUniversal {
 /*************************************/
 /*              TASKS                */
 /*************************************/
-async fn tx_task(
+
+pub(super) async fn tx_task(
     mut pipeline: TransmissionPipelineConsumer,
-    link: &mut TransportLinkUnicastTx,
+    links: Arc<AsyncRwLock<Vec<TransportLinkUnicastTx>>>,
     keep_alive: Duration,
-    #[cfg(feature = "stats")] stats: Arc<TransportStats>,
 ) -> ZResult<()> {
+    #[derive(Default, Debug)]
+    enum Disc {
+        #[default]
+        Sequential,
+        Parallel,
+        Spawn,
+    }
+
+    let env = std::env::var("ZENOH_TX_DISC");
+    log::debug!("ZENOH_TX_DISC: {env:?}");
+    let disc = match env {
+        Ok(d) => match d.as_str() {
+            "sequential" => Disc::Sequential,
+            "parallel" => Disc::Parallel,
+            "spawn" => Disc::Spawn,
+            _ => Disc::default(),
+        },
+        Err(_) => Disc::default(),
+    };
+    log::debug!("Tx disc: {disc:?}");
+
     loop {
-        match pipeline.pull().timeout(keep_alive).await {
+        let res = pipeline.pull().timeout(keep_alive).await;
+        let mut ls = zasyncread!(links);
+        match res {
             Ok(res) => match res {
                 Some((mut batch, priority)) => {
-                    link.send_batch(&mut batch).await?;
+                    while ls.is_empty() {
+                        log::trace!("No links available for TX");
+                        drop(ls);
+                        task::sleep(Duration::from_millis(100)).await;
+                        ls = zasyncread!(links);
+                    }
 
-                    #[cfg(feature = "stats")]
+                    #[cfg(feature = "transport_compression")]
                     {
-                        stats.inc_tx_t_msgs(batch.stats.t_msgs);
-                        stats.inc_tx_bytes(batch.len() as usize);
+                        batch.config.is_compression = false;
+                    }
+
+                    let res = batch
+                        .finalize(None)
+                        .map_err(|_| zerror!("Batch finalization error"))?;
+
+                    if let Finalize::Buffer = res {
+                        panic!("Compression is not supported");
+                    };
+
+                    // Send the message on the links
+                    match disc {
+                        Disc::Sequential => {
+                            // Sequential
+                            for l in ls.as_slice() {
+                                let _ = l.inner.link.write_all(batch.as_slice()).await;
+                            }
+                        }
+                        Disc::Parallel => {
+                            // Parallel but blocking
+                            use futures::stream::StreamExt;
+                            let _ = futures::stream::iter(0..ls.len())
+                                .map(|i| ls[i].inner.link.write_all(batch.as_slice()))
+                                .buffer_unordered(ls.len())
+                                .collect::<Vec<_>>()
+                                .await; // Ignore errors
+                        }
+                        Disc::Spawn => {
+                            // Parallel spawn
+                            for l in ls.iter() {
+                                let c_b = batch.clone();
+                                let c_l = l.inner.link.clone();
+                                task::spawn(async move {
+                                    if let Err(e) = c_l.write_all(c_b.as_slice()).await {
+                                        log::debug!("Write failed on {:?}: {}", c_l, e);
+                                    }
+                                });
+                            }
+                        }
                     }
 
                     // Reinsert the batch into the queue
@@ -210,13 +212,10 @@ async fn tx_task(
             },
             Err(_) => {
                 let message: TransportMessage = KeepAlive.into();
-
-                #[allow(unused_variables)] // Used when stats feature is enabled
-                let n = link.send(&message).await?;
-                #[cfg(feature = "stats")]
-                {
-                    stats.inc_tx_t_msgs(1);
-                    stats.inc_tx_bytes(n);
+                drop(ls);
+                let mut ls = zasyncwrite!(links);
+                for l in ls.as_mut_slice() {
+                    let _ = l.send(&message).await?;
                 }
             }
         }
@@ -225,15 +224,14 @@ async fn tx_task(
     // Drain the transmission pipeline and write remaining bytes on the wire
     let mut batches = pipeline.drain();
     for (mut b, _) in batches.drain(..) {
-        link.send_batch(&mut b)
-            .timeout(keep_alive)
-            .await
-            .map_err(|_| zerror!("{}: flush failed after {} ms", link, keep_alive.as_millis()))??;
-
-        #[cfg(feature = "stats")]
-        {
-            stats.inc_tx_t_msgs(b.stats.t_msgs);
-            stats.inc_tx_bytes(b.len() as usize);
+        let mut ls = zasyncwrite!(links);
+        for l in ls.as_mut_slice() {
+            l.send_batch(&mut b)
+                .timeout(keep_alive)
+                .await
+                .map_err(|_| {
+                    zerror!("{}: flush failed after {} ms", l, keep_alive.as_millis())
+                })??;
         }
     }
 
