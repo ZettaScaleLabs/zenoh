@@ -12,8 +12,6 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 use super::transport::TransportUnicastUniversal;
-#[cfg(feature = "stats")]
-use crate::common::stats::TransportStats;
 use crate::{
     common::{
         batch::{Finalize, RBatch},

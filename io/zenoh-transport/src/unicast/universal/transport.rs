@@ -39,7 +39,7 @@ use zenoh_link::Link;
 use zenoh_protocol::{
     core::{Priority, WhatAmI, ZenohId},
     network::NetworkMessage,
-    transport::{close, Close, PrioritySn, TransportMessage, TransportSn},
+    transport::{close, BatchSize, Close, PrioritySn, TransportMessage, TransportSn},
 };
 use zenoh_result::{bail, zerror, ZResult};
 
@@ -130,6 +130,10 @@ impl TransportUnicastUniversal {
             },
             Err(_) => true,
         };
+        pc.batch.mtu = std::env::var("ZENOH_BATCH_SIZE")
+            .map(|s| s.parse::<BatchSize>().unwrap_or(BatchSize::MAX))
+            .unwrap_or(BatchSize::MAX);
+        log::debug!("ZENOH_BATCH_SIZE: {}", pc.batch.mtu);
 
         let (producer, consumer) = TransmissionPipeline::make(pc, priority_tx.as_slice());
 
