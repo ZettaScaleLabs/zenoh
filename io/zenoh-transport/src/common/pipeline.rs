@@ -576,6 +576,7 @@ impl TransmissionPipeline {
         let producer = TransmissionPipelineProducer {
             stage_in: stage_in.into_boxed_slice().into(),
             active: active.clone(),
+            is_streamed: config.batch.is_streamed,
         };
         let consumer = TransmissionPipelineConsumer {
             stage_out: stage_out.into_boxed_slice(),
@@ -592,6 +593,7 @@ pub(crate) struct TransmissionPipelineProducer {
     // Each priority queue has its own Mutex
     stage_in: Arc<[Mutex<StageIn>]>,
     active: Arc<AtomicBool>,
+    is_streamed: bool,
 }
 
 impl TransmissionPipelineProducer {
@@ -634,6 +636,10 @@ impl TransmissionPipelineProducer {
         for ig in in_guards.iter_mut() {
             ig.s_out.notify(BatchSize::MAX);
         }
+    }
+
+    pub(crate) fn is_streamed(&self) -> bool {
+        self.is_streamed
     }
 }
 

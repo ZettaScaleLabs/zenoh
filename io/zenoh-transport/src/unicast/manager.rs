@@ -539,7 +539,7 @@ impl TransportManager {
         } else {
             log::debug!("Will use Universal transport!");
             link_error!(
-                TransportUnicastUniversal::make(self.clone(), config.clone()),
+                TransportUnicastUniversal::make(self.clone(), config.clone(), link.is_streamed()),
                 close::reason::INVALID
             )
         };

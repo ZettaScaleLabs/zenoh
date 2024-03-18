@@ -90,6 +90,7 @@ impl TransportUnicastUniversal {
     pub fn make(
         manager: TransportManager,
         config: TransportConfigUnicast,
+        is_streamed: bool,
     ) -> ZResult<Arc<dyn TransportUnicastTrait>> {
         let mut priority_tx = vec![];
         let mut priority_rx = vec![];
@@ -120,16 +121,8 @@ impl TransportUnicastUniversal {
         // The pipeline
         let mut pc = TransmissionPipelineConf::default();
 
-        let env = std::env::var("ZENOH_TX_STREAMED");
-        log::debug!("ZENOH_TX_STREAMED: {env:?}");
-        pc.batch.is_streamed = match env {
-            Ok(d) => match d.as_str() {
-                "true" => true,
-                "false" => false,
-                _ => true,
-            },
-            Err(_) => true,
-        };
+        pc.batch.is_streamed = is_streamed;
+
         pc.batch.mtu = std::env::var("ZENOH_BATCH_SIZE")
             .map(|s| s.parse::<BatchSize>().unwrap_or(BatchSize::MAX))
             .unwrap_or(BatchSize::MAX);
@@ -304,6 +297,15 @@ impl TransportUnicastTrait for TransportUnicastUniversal {
         other_lease: Duration,
     ) -> AddLinkResult {
         let add_link_guard = zasynclock!(self.add_link_lock);
+
+        if self.pipeline.is_streamed() != link.is_streamed() {
+            let e = zerror!(
+                "Transport streaming config is [{}], cannot add link that is [{}]",
+                self.pipeline.is_streamed(),
+                link.is_streamed()
+            );
+            return Err((e.into(), link.fail(), close::reason::MAX_LINKS));
+        }
 
         // Check if we can add more inbound links
         {

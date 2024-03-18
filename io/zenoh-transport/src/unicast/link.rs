@@ -307,6 +307,10 @@ impl LinkUnicastWithOpenAck {
         Self { link, ack }
     }
 
+    pub(crate) fn is_streamed(&self) -> bool {
+        self.link.link.is_streamed()
+    }
+
     pub(crate) fn inner_config(&self) -> &TransportLinkUnicastConfig {
         &self.link.config
     }
