@@ -135,12 +135,12 @@ impl SharedMemoryClientStorage {
     /// Get the list of supported SHM protocols.
     #[zenoh_macros::unstable_doc]
     pub fn supported_protocols(&self) -> Vec<ProtocolID> {
-        self.clients.get_clients().keys().copied().collect()
+        self.clients.keys().copied().collect()
     }
 
     fn new(clients: HashMap<ProtocolID, Box<dyn SharedMemoryClient>>) -> Self {
         Self {
-            clients: ClientStorage::new(clients),
+            clients: ClientStorage::from(clients),
             segments: RwLock::default(),
         }
     }

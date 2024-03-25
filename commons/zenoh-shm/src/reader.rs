@@ -85,7 +85,6 @@ impl SharedMemoryReader {
         // find appropriate client
         let client = self
             .clients
-            .get_clients()
             .get(&id.protocol)
             .ok_or_else(|| zerror!("Unsupported SHM protocol: {}", id.protocol))?;
 
@@ -106,33 +105,7 @@ impl SharedMemoryReader {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct ClientStorage<Inner>
-where
-    Inner: Sized,
-{
-    clients: HashMap<ProtocolID, Inner>,
-}
-
-impl<Inner: Sized> ClientStorage<Inner> {
-    pub(crate) fn new(clients: HashMap<ProtocolID, Inner>) -> Self {
-        Self { clients }
-    }
-
-    pub(crate) fn get_clients(&self) -> &HashMap<ProtocolID, Inner> {
-        &self.clients
-    }
-}
-
-/// # Safety
-/// Only immutable access to internal container is allowed,
-/// so we are Send if the contained type is Send
-unsafe impl<Inner: Send> Send for ClientStorage<Inner> {}
-
-/// # Safety
-/// Only immutable access to internal container is allowed,
-/// so we are Sync if the contained type is Sync
-unsafe impl<Inner: Sync> Sync for ClientStorage<Inner> {}
+pub(crate) type ClientStorage<T> = HashMap<ProtocolID, T>;
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub(crate) struct GlobalDataSegmentID {
