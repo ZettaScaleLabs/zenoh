@@ -191,6 +191,7 @@ impl TransportUnicastUniversal {
         for l in links.drain(..) {
             let _ = l.close().await;
         }
+        self.pipeline.disable();
 
         // Notify the callback that we have closed the transport
         if let Some(cb) = callback.as_ref() {
