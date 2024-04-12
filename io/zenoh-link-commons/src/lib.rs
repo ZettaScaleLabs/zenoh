@@ -69,15 +69,23 @@ impl fmt::Display for Link {
 
 impl From<&LinkUnicast> for Link {
     fn from(link: &LinkUnicast) -> Link {
-        Link {
+        let start = std::time::Instant::now();
+        let interfaces = link.get_interface_names();
+        println!("Link - get interfaces: {:#?}", start.elapsed());
+
+        let start = std::time::Instant::now();
+        let link = Link {
             src: link.get_src().to_owned(),
             dst: link.get_dst().to_owned(),
             group: None,
             mtu: link.get_mtu(),
             is_reliable: link.is_reliable(),
             is_streamed: link.is_streamed(),
-            interfaces: link.get_interface_names(),
-        }
+            interfaces,
+        };
+        println!("Link - link from: {:#?}", start.elapsed());
+
+        link
     }
 }
 

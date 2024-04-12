@@ -218,16 +218,20 @@ impl LinkManagerUnicastTcp {
             SocketAddr::V6(_) => TcpSocket::new_v6(),
         }?;
 
+        let start = std::time::Instant::now();
         if let Some(iface) = iface {
             zenoh_util::net::set_bind_to_device_tcp_socket(&socket, iface)?;
         }
+        println!("TCP - connect bind device: {:#?}", start.elapsed());
 
         // Build a TcpStream from TcpSocket
         // https://docs.rs/tokio/latest/tokio/net/struct.TcpSocket.html
+        let start = std::time::Instant::now();
         let stream = socket
             .connect(*dst_addr)
             .await
             .map_err(|e| zerror!("{}: {}", dst_addr, e))?;
+        println!("TCP - connect socket: {:#?}", start.elapsed());
 
         let src_addr = stream
             .local_addr()
@@ -250,18 +254,24 @@ impl LinkManagerUnicastTcp {
             SocketAddr::V6(_) => TcpSocket::new_v6(),
         }?;
 
+        let start = std::time::Instant::now();
         if let Some(iface) = iface {
             zenoh_util::net::set_bind_to_device_tcp_socket(&socket, iface)?;
         }
+        println!("TCP - listen bind device: {:#?}", start.elapsed());
 
         // Build a TcpListener from TcpSocket
         // https://docs.rs/tokio/latest/tokio/net/struct.TcpSocket.html
+        let start = std::time::Instant::now();
         socket.set_reuseaddr(true)?;
         socket.bind(*addr).map_err(|e| zerror!("{}: {}", addr, e))?;
+        println!("TCP - listen bind socket: {:#?}", start.elapsed());
         // backlog (the maximum number of pending connections are queued): 1024
+        let start = std::time::Instant::now();
         let listener = socket
             .listen(1024)
             .map_err(|e| zerror!("{}: {}", addr, e))?;
+        println!("TCP - listen socket: {:#?}", start.elapsed());
 
         let local_addr = listener
             .local_addr()
@@ -274,10 +284,14 @@ impl LinkManagerUnicastTcp {
 #[async_trait]
 impl LinkManagerUnicastTrait for LinkManagerUnicastTcp {
     async fn new_link(&self, endpoint: EndPoint) -> ZResult<LinkUnicast> {
+        let start = std::time::Instant::now();
         let dst_addrs = get_tcp_addrs(endpoint.address()).await?;
+        println!("TCP - get addresses: {:#?}", start.elapsed());
+
         let config = endpoint.config();
         let iface = config.get(BIND_INTERFACE);
 
+        let start = std::time::Instant::now();
         let mut errs: Vec<ZError> = vec![];
         for da in dst_addrs {
             match self.new_link_inner(&da, iface).await {
@@ -290,6 +304,7 @@ impl LinkManagerUnicastTrait for LinkManagerUnicastTcp {
                 }
             }
         }
+        println!("TCP - for new_link_inner: {:#?}", start.elapsed());
 
         if errs.is_empty() {
             errs.push(zerror!("No TCP unicast addresses available").into());

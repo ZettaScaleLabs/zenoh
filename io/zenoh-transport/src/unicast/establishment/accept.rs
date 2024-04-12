@@ -144,6 +144,8 @@ impl<'a, 'b: 'a> AcceptFsm for &'a mut AcceptLink<'b> {
         self,
         input: Self::RecvInitSynIn,
     ) -> Result<Self::RecvInitSynOut, Self::Error> {
+        let start = std::time::Instant::now();
+
         let (state, input) = input;
 
         let msg = self
@@ -245,6 +247,9 @@ impl<'a, 'b: 'a> AcceptFsm for &'a mut AcceptLink<'b> {
             #[cfg(feature = "shared-memory")]
             ext_shm,
         };
+
+        println!("Accept - recv init syn: {:#?}", start.elapsed());
+
         Ok(output)
     }
 
@@ -254,6 +259,8 @@ impl<'a, 'b: 'a> AcceptFsm for &'a mut AcceptLink<'b> {
         self,
         input: Self::SendInitAckIn,
     ) -> Result<Self::SendInitAckOut, Self::Error> {
+        let start = std::time::Instant::now();
+
         #[allow(unused_mut)] // Required for "shared-memory" feature
         let (mut state, input) = input;
 
@@ -370,6 +377,9 @@ impl<'a, 'b: 'a> AcceptFsm for &'a mut AcceptLink<'b> {
             .map_err(|e| (e, Some(close::reason::GENERIC)))?;
 
         let output = SendInitAckOut { cookie_nonce };
+
+        println!("Accept - send init ack: {:#?}", start.elapsed());
+
         Ok(output)
     }
 
@@ -379,6 +389,8 @@ impl<'a, 'b: 'a> AcceptFsm for &'a mut AcceptLink<'b> {
         self,
         input: Self::RecvOpenSynIn,
     ) -> Result<Self::RecvOpenSynOut, Self::Error> {
+        let start = std::time::Instant::now();
+
         let msg = self
             .link
             .recv()
@@ -500,6 +512,9 @@ impl<'a, 'b: 'a> AcceptFsm for &'a mut AcceptLink<'b> {
             other_lease: open_syn.lease,
             other_initial_sn: open_syn.initial_sn,
         };
+
+        println!("Accept - recv open syn: {:#?}", start.elapsed());
+
         Ok((state, output))
     }
 
@@ -509,6 +524,8 @@ impl<'a, 'b: 'a> AcceptFsm for &'a mut AcceptLink<'b> {
         self,
         input: Self::SendOpenAckIn,
     ) -> Result<Self::SendOpenAckOut, Self::Error> {
+        let start = std::time::Instant::now();
+
         let (state, input) = input;
 
         // Extension QoS
@@ -582,11 +599,16 @@ impl<'a, 'b: 'a> AcceptFsm for &'a mut AcceptLink<'b> {
         // Do not send the OpenAck right now since we might still incur in MAX_LINKS error
 
         let output = SendOpenAckOut { open_ack };
+
+        println!("Accept - send open ack: {:#?}", start.elapsed());
+
         Ok(output)
     }
 }
 
 pub(crate) async fn accept_link(link: LinkUnicast, manager: &TransportManager) -> ZResult<()> {
+    let start = std::time::Instant::now();
+
     let mtu = link.get_mtu();
     let is_streamed = link.is_streamed();
     let config = TransportLinkUnicastConfig {
@@ -737,6 +759,8 @@ pub(crate) async fn accept_link(link: LinkUnicast, manager: &TransportManager) -
         manager.config.zid,
         s_link,
     );
+
+    println!("Accept - link: {:#?}", start.elapsed());
 
     Ok(())
 }

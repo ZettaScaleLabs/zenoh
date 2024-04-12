@@ -475,6 +475,7 @@ impl TransportManager {
         transport: &Arc<dyn TransportUnicastTrait>,
     ) -> ZResult<()> {
         // Assign a callback to the new transport
+        let start = std::time::Instant::now();
         let peer = TransportPeer {
             zid: transport.get_zid(),
             whatami: transport.get_whatami(),
@@ -483,17 +484,22 @@ impl TransportManager {
             #[cfg(feature = "shared-memory")]
             is_shm: transport.is_shm(),
         };
+        println!("Notify - peer: {:#?}", start.elapsed());
         // Notify the transport handler that there is a new transport and get back a callback
         // NOTE: the read loop of the link the open message was sent on remains blocked
         //       until new_unicast() returns. The read_loop in the various links
         //       waits for any eventual transport to associate to.
+        let start = std::time::Instant::now();
         let callback = self
             .config
             .handler
             .new_unicast(peer, TransportUnicast(Arc::downgrade(transport)))?;
+        println!("Notify - call handler: {:#?}", start.elapsed());
 
         // Set the callback on the transport
+        let start = std::time::Instant::now();
         transport.set_callback(callback);
+        println!("Notify - set callback: {:#?}", start.elapsed());
 
         Ok(())
     }
@@ -536,6 +542,7 @@ impl TransportManager {
         let is_multilink = zcondfeat!("transport_multilink", config.multilink.is_some(), false);
 
         // Select and create transport implementation depending on the cfg and enabled features
+        let start = std::time::Instant::now();
         let t = if config.is_lowlatency {
             log::debug!("Will use LowLatency transport!");
             TransportUnicastLowlatency::make(self.clone(), config.clone())
@@ -546,8 +553,10 @@ impl TransportManager {
                 close::reason::INVALID
             )
         };
+        println!("Init - make transport: {:#?}", start.elapsed());
 
         // Add the link to the transport
+        let start = std::time::Instant::now();
         let (start_tx_rx, ack) = match t.add_link(link, other_initial_sn, other_lease).await {
             Ok(val) => val,
             Err(e) => {
@@ -555,6 +564,7 @@ impl TransportManager {
                 return Err(InitTransportError::Link(e));
             }
         };
+        println!("Init - add link: {:#?}", start.elapsed());
 
         macro_rules! transport_error {
             ($s:expr, $reason:expr) => {
@@ -576,6 +586,7 @@ impl TransportManager {
         drop(guard);
 
         // Notify manager's interface that there is a new transport
+        let start = std::time::Instant::now();
         transport_error!(
             self.notify_new_transport_unicast(&t),
             close::reason::GENERIC
@@ -583,6 +594,7 @@ impl TransportManager {
 
         // Notify transport's callback interface that there is a new link
         Self::notify_new_link_unicast(&t, c_link);
+        println!("Init - notify: {:#?}", start.elapsed());
 
         start_tx_rx();
 
@@ -629,29 +641,40 @@ impl TransportManager {
     ) -> ZResult<TransportUnicast> {
         // First verify if the transport already exists
         let init_result = {
+            let start = std::time::Instant::now();
             let guard = zasynclock!(self.state.unicast.transports);
+            println!("Init - guard lock: {:#?}", start.elapsed());
             match guard.get(&config.zid) {
                 Some(transport) => {
                     let transport = transport.clone();
                     drop(guard);
-                    self.init_existing_transport_unicast(
-                        config,
-                        link,
-                        other_initial_sn,
-                        other_lease,
-                        transport,
-                    )
-                    .await
+                    let start = std::time::Instant::now();
+
+                    let res = self
+                        .init_existing_transport_unicast(
+                            config,
+                            link,
+                            other_initial_sn,
+                            other_lease,
+                            transport,
+                        )
+                        .await;
+                    println!("Init - existing transport: {:#?}", start.elapsed());
+                    res
                 }
                 None => {
-                    self.init_new_transport_unicast(
-                        config,
-                        link,
-                        other_initial_sn,
-                        other_lease,
-                        guard,
-                    )
-                    .await
+                    let start = std::time::Instant::now();
+                    let res = self
+                        .init_new_transport_unicast(
+                            config,
+                            link,
+                            other_initial_sn,
+                            other_lease,
+                            guard,
+                        )
+                        .await;
+                    println!("Init - new transport: {:#?}", start.elapsed());
+                    res
                 }
             }
         };

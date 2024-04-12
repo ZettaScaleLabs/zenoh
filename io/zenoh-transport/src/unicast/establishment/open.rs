@@ -26,7 +26,7 @@ use crate::{
     TransportManager,
 };
 use async_trait::async_trait;
-use std::time::Duration;
+use std::time::{self, Duration};
 use zenoh_buffers::ZSlice;
 #[cfg(feature = "transport_auth")]
 use zenoh_core::zasynclock;
@@ -128,6 +128,8 @@ impl<'a, 'b: 'a> OpenFsm for &'a mut OpenLink<'b> {
         self,
         input: Self::SendInitSynIn,
     ) -> Result<Self::SendInitSynOut, Self::Error> {
+        let start = std::time::Instant::now();
+
         let (link, state, input) = input;
 
         // Extension QoS
@@ -204,6 +206,8 @@ impl<'a, 'b: 'a> OpenFsm for &'a mut OpenLink<'b> {
             .await
             .map_err(|e| (e, Some(close::reason::GENERIC)))?;
 
+        println!("Open - send init syn: {:#?}", start.elapsed());
+
         Ok(())
     }
 
@@ -213,6 +217,8 @@ impl<'a, 'b: 'a> OpenFsm for &'a mut OpenLink<'b> {
         self,
         input: Self::RecvInitAckIn,
     ) -> Result<Self::RecvInitAckOut, Self::Error> {
+        let start = std::time::Instant::now();
+
         let (link, state) = input;
 
         let msg = link
@@ -335,6 +341,9 @@ impl<'a, 'b: 'a> OpenFsm for &'a mut OpenLink<'b> {
             #[cfg(feature = "shared-memory")]
             ext_shm: shm_challenge,
         };
+
+        println!("Open - recv init ack: {:#?}", start.elapsed());
+
         Ok(output)
     }
 
@@ -344,6 +353,8 @@ impl<'a, 'b: 'a> OpenFsm for &'a mut OpenLink<'b> {
         self,
         input: Self::SendOpenSynIn,
     ) -> Result<Self::SendOpenSynOut, Self::Error> {
+        let start = std::time::Instant::now();
+
         let (link, state, input) = input;
 
         // Extension QoS
@@ -422,6 +433,9 @@ impl<'a, 'b: 'a> OpenFsm for &'a mut OpenLink<'b> {
             .map_err(|e| (e, Some(close::reason::GENERIC)))?;
 
         let output = SendOpenSynOut { mine_initial_sn };
+
+        println!("Open - send open syn: {:#?}", start.elapsed());
+
         Ok(output)
     }
 
@@ -431,6 +445,8 @@ impl<'a, 'b: 'a> OpenFsm for &'a mut OpenLink<'b> {
         self,
         input: Self::RecvOpenAckIn,
     ) -> Result<Self::RecvOpenAckOut, Self::Error> {
+        let start = std::time::Instant::now();
+
         let (link, state) = input;
 
         let msg = link
@@ -469,26 +485,26 @@ impl<'a, 'b: 'a> OpenFsm for &'a mut OpenLink<'b> {
             .await
             .map_err(|e| (e, Some(close::reason::GENERIC)))?;
 
-        // Extension Shm
-        #[cfg(feature = "shared-memory")]
-        self.ext_shm
-            .recv_open_ack((&mut state.transport.ext_shm, open_ack.ext_shm))
-            .await
-            .map_err(|e| (e, Some(close::reason::GENERIC)))?;
+        // // Extension Shm
+        // #[cfg(feature = "shared-memory")]
+        // self.ext_shm
+        //     .recv_open_ack((&mut state.transport.ext_shm, open_ack.ext_shm))
+        //     .await
+        //     .map_err(|e| (e, Some(close::reason::GENERIC)))?;
 
-        // Extension Auth
-        #[cfg(feature = "transport_auth")]
-        self.ext_auth
-            .recv_open_ack((&mut state.link.ext_auth, open_ack.ext_auth))
-            .await
-            .map_err(|e| (e, Some(close::reason::GENERIC)))?;
+        // // Extension Auth
+        // #[cfg(feature = "transport_auth")]
+        // self.ext_auth
+        //     .recv_open_ack((&mut state.link.ext_auth, open_ack.ext_auth))
+        //     .await
+        //     .map_err(|e| (e, Some(close::reason::GENERIC)))?;
 
-        // Extension MultiLink
-        #[cfg(feature = "transport_multilink")]
-        self.ext_mlink
-            .recv_open_ack((&mut state.transport.ext_mlink, open_ack.ext_mlink))
-            .await
-            .map_err(|e| (e, Some(close::reason::GENERIC)))?;
+        // // Extension MultiLink
+        // #[cfg(feature = "transport_multilink")]
+        // self.ext_mlink
+        //     .recv_open_ack((&mut state.transport.ext_mlink, open_ack.ext_mlink))
+        //     .await
+        //     .map_err(|e| (e, Some(close::reason::GENERIC)))?;
 
         // Extension LowLatency
         self.ext_lowlatency
@@ -496,17 +512,20 @@ impl<'a, 'b: 'a> OpenFsm for &'a mut OpenLink<'b> {
             .await
             .map_err(|e| (e, Some(close::reason::GENERIC)))?;
 
-        // Extension Compression
-        #[cfg(feature = "transport_compression")]
-        self.ext_compression
-            .recv_open_ack((&mut state.link.ext_compression, open_ack.ext_compression))
-            .await
-            .map_err(|e| (e, Some(close::reason::GENERIC)))?;
+        // // Extension Compression
+        // #[cfg(feature = "transport_compression")]
+        // self.ext_compression
+        //     .recv_open_ack((&mut state.link.ext_compression, open_ack.ext_compression))
+        //     .await
+        //     .map_err(|e| (e, Some(close::reason::GENERIC)))?;
 
         let output = RecvOpenAckOut {
             other_initial_sn: open_ack.initial_sn,
             other_lease: open_ack.lease,
         };
+
+        println!("Open - recv open ack: {:#?}", start.elapsed());
+
         Ok(output)
     }
 }
@@ -515,6 +534,8 @@ pub(crate) async fn open_link(
     link: LinkUnicast,
     manager: &TransportManager,
 ) -> ZResult<TransportUnicast> {
+    let start = std::time::Instant::now();
+
     let is_streamed = link.is_streamed();
     let config = TransportLinkUnicastConfig {
         direction: TransportLinkUnicastDirection::Outbound,
@@ -610,6 +631,8 @@ pub(crate) async fn open_link(
     let oack_out = step!(fsm.recv_open_ack((&mut link, &mut state)).await);
 
     // Initialize the transport
+    let start2 = std::time::Instant::now();
+
     let config = TransportConfigUnicast {
         zid: iack_out.other_zid,
         whatami: iack_out.other_whatami,
@@ -644,12 +667,16 @@ pub(crate) async fn open_link(
         )
         .await?;
 
+    println!("Open - init: {:#?}", start2.elapsed());
+
     log::debug!(
         "New transport link opened from {} to {}: {}.",
         manager.config.zid,
         iack_out.other_zid,
         s_link,
     );
+
+    println!("Open - link: {:#?}", start.elapsed());
 
     Ok(transport)
 }
