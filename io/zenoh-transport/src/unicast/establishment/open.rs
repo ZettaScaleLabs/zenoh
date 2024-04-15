@@ -26,7 +26,7 @@ use crate::{
     TransportManager,
 };
 use async_trait::async_trait;
-use std::time::{self, Duration};
+use std::time::Duration;
 use zenoh_buffers::ZSlice;
 #[cfg(feature = "transport_auth")]
 use zenoh_core::zasynclock;
