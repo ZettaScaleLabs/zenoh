@@ -20,10 +20,13 @@ use super::{
 use async_std::prelude::FutureExt;
 use flume::{bounded, Receiver, Sender};
 use ringbuffer_spsc::{RingBuffer, RingBufferReader, RingBufferWriter};
-use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
+use std::{
+    sync::atomic::{AtomicBool, AtomicU16, Ordering},
+    time::Instant,
+};
 use zenoh_buffers::{
     reader::{HasReader, Reader},
     writer::HasWriter,
@@ -63,6 +66,10 @@ impl StageInRefill {
 
     fn wait(&self) -> bool {
         self.n_ref_r.recv().is_ok()
+    }
+
+    fn wait_deadline(&self, instant: Instant) -> bool {
+        self.n_ref_r.recv_deadline(instant).is_ok()
     }
 }
 
@@ -122,12 +129,14 @@ struct StageIn {
 }
 
 impl StageIn {
-    fn push_network_message(&mut self, msg: &mut NetworkMessage, priority: Priority) -> bool {
+    fn push_network_message(
+        &mut self,
+        msg: &mut NetworkMessage,
+        priority: Priority,
+        deadline_before_drop: Option<Instant>,
+    ) -> bool {
         // Lock the current serialization batch.
         let mut c_guard = self.mutex.current();
-
-        // Check congestion control
-        let is_droppable = msg.is_droppable();
 
         macro_rules! zgetbatch_rets {
             ($fragment:expr, $restore_sn:expr) => {
@@ -141,19 +150,25 @@ impl StageIn {
                             }
                             None => {
                                 drop(c_guard);
-                                if !$fragment && is_droppable {
-                                    // Restore the sequence number
-                                    $restore_sn;
-                                    // We are in the congestion scenario
-                                    // The yield is to avoid the writing task to spin
-                                    // indefinitely and monopolize the CPU usage.
-                                    thread::yield_now();
-                                    return false;
-                                } else {
-                                    if !self.s_ref.wait() {
-                                        // Restore the sequence number
-                                        $restore_sn;
-                                        return false;
+                                match deadline_before_drop {
+                                    Some(deadline) if !$fragment => {
+                                        // We are in the congestion scenario and message is droppable
+                                        // Wait for an available batch until deadline
+                                        if !self.s_ref.wait_deadline(deadline) {
+                                            // Still no available batch.
+                                            // Restore the sequence number and drop the message
+                                            $restore_sn;
+                                            return false
+                                        }
+                                    }
+                                    _ => {
+                                        // Block waiting for an available batch
+                                        if !self.s_ref.wait() {
+                                            // Some error prevented the queue to wait and give back an available batch
+                                            // Restore the sequence number and drop the message
+                                            $restore_sn;
+                                            return false;
+                                        }
                                     }
                                 }
                                 c_guard = self.mutex.current();
@@ -577,10 +592,21 @@ impl TransmissionPipeline {
         }
 
         let active = Arc::new(AtomicBool::new(true));
+        let wait_before_drop = Duration::from_micros(
+            std::env::var("ZENOH_WAIT_BEFORE_DROP")
+                .unwrap_or("1000".into())
+                .parse::<u64>()
+                .unwrap(),
+        );
+        log::debug!(
+            "ZENOH_WAIT_BEFORE_DROP={}microseconds",
+            wait_before_drop.as_micros()
+        );
         let producer = TransmissionPipelineProducer {
             stage_in: stage_in.into_boxed_slice().into(),
             active: active.clone(),
             is_streamed: config.batch.is_streamed,
+            wait_before_drop,
         };
         let consumer = TransmissionPipelineConsumer {
             stage_out: stage_out.into_boxed_slice(),
@@ -598,6 +624,7 @@ pub(crate) struct TransmissionPipelineProducer {
     stage_in: Arc<[Mutex<StageIn>]>,
     active: Arc<AtomicBool>,
     is_streamed: bool,
+    wait_before_drop: Duration,
 }
 
 impl TransmissionPipelineProducer {
@@ -610,9 +637,15 @@ impl TransmissionPipelineProducer {
         } else {
             (0, Priority::default())
         };
+        // If message is droppable, compute a deadline after which the sample could be dropped
+        let deadline_before_drop = if msg.is_droppable() {
+            Some(Instant::now() + self.wait_before_drop)
+        } else {
+            None
+        };
         // Lock the channel. We are the only one that will be writing on it.
         let mut queue = zlock!(self.stage_in[idx]);
-        queue.push_network_message(&mut msg, priority)
+        queue.push_network_message(&mut msg, priority, deadline_before_drop)
     }
 
     #[inline]
