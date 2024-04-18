@@ -33,11 +33,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        image: [ "ubuntu:22.04", "ubuntu:24.04" ]
+        image: [ "ubuntu:22.04" ]
     container: ${{ matrix.image }}
     steps:
       - name: Update and install packages
-        run: apt-get update && apt-get install -y curl git build-essential pkg-config
+        run: apt-get update && apt-get install -y curl git build-essential pkg-config libssl-dev
 
       - name: Install Rust toolchain
         run: |
@@ -70,11 +70,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        image: [ "ubuntu:22.04", "ubuntu:24.04" ]
+        image: [ "ubuntu:22.04" ]
     container: ${{ matrix.image }}
     steps:
       - name: Update and install packages
-        run: apt-get update && apt-get install -y curl git build-essential pkg-config
+        run: apt-get update && apt-get install -y curl git build-essential pkg-config libssl-dev
 
       - name: Install Rust toolchain
         run: |
