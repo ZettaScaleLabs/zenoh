@@ -28,7 +28,6 @@ env:
 jobs:
   tests:
     name: Tests
-    needs: checks
     runs-on: ubuntu-latest
     strategy:
       matrix:
