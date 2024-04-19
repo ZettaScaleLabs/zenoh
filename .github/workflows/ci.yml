@@ -14,12 +14,16 @@
 name: CI
 
 on:
-  push:
-    branches: ["**"]
-  pull_request:
-    branches: ["**"]
-  schedule:
-    - cron: "0 6 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      features:
+        description: Build with specified features (comma separated, no space)
+        type: string
+  workflow_call:
+    inputs:
+      features:
+        description: Build with specified features (comma separated, no space)
+        type: string
 
 env:
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
