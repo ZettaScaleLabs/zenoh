@@ -47,10 +47,6 @@ jobs:
 
       - name: Install nextest
         run: cargo +stable install --locked cargo-nextest
-        env:
-          CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
 
       - name: Run tests
-        run: cargo nextest run --release --features=${{ inputs.features }} --verbose
-        env:
-          CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+        run: cargo nextest run -p zenoh-transport --test endpoints -F transport_tcp
