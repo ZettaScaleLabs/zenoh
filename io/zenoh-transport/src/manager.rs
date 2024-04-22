@@ -22,7 +22,7 @@ use crate::multicast::manager::{
 use rand::{RngCore, SeedableRng};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex as AsyncMutex;
 use zenoh_config::{Config, LinkRxConf, QueueConf, QueueSizeConf};
 use zenoh_crypto::{BlockCipher, PseudoRng};
@@ -248,12 +248,17 @@ impl TransportManagerBuilder {
     }
 
     pub fn build(self, handler: Arc<dyn TransportEventHandler>) -> ZResult<TransportManager> {
+        let start = Instant::now();
         // Initialize the PRNG and the Cipher
         let mut prng = PseudoRng::from_entropy();
-
+        println!("TransportManagerBuilder - Initialize PRNG and Cipher: {:#?}", start.elapsed());
+        let start = Instant::now();
         let unicast = self.unicast.build(&mut prng)?;
+        println!("TransportManagerBuilder - Build unicast: {:#?}", start.elapsed());
+        let start = Instant::now();
         let multicast = self.multicast.build()?;
-
+        println!("TransportManagerBuilder - Build multicast: {:#?}", start.elapsed());
+        let start = Instant::now();
         let mut queue_size = [0; Priority::NUM];
         queue_size[Priority::Control as usize] = *self.queue_size.control();
         queue_size[Priority::RealTime as usize] = *self.queue_size.real_time();
@@ -263,6 +268,8 @@ impl TransportManagerBuilder {
         queue_size[Priority::Data as usize] = *self.queue_size.data();
         queue_size[Priority::DataLow as usize] = *self.queue_size.data_low();
         queue_size[Priority::Background as usize] = *self.queue_size.background();
+        println!("TransportManagerBuilder - Queue initializations: {:#?}", start.elapsed());
+        let start = Instant::now();
 
         let config = TransportManagerConfig {
             version: self.version,
@@ -287,15 +294,23 @@ impl TransportManagerBuilder {
                     .collect()
             }),
         };
+        println!("TransportManagerBuilder - TransportManagerConfig: {:#?}", start.elapsed());
+        let start = Instant::now();
 
         let state = TransportManagerState {
             unicast: unicast.state,
             multicast: multicast.state,
         };
+        println!("TransportManagerBuilder - TransportManagerState: {:#?}", start.elapsed());
+        let start = Instant::now();
 
         let params = TransportManagerParams { config, state };
+        println!("TransportManagerBuilder - TransportManagerParams: {:#?}", start.elapsed());
+        let start = Instant::now();
 
-        Ok(TransportManager::new(params, prng))
+        let tm = Ok(TransportManager::new(params, prng));
+        println!("TransportManagerBuilder - TransportManager::new: {:#?}", start.elapsed());
+        tm
     }
 }
 
