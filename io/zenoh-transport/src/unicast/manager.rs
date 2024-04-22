@@ -33,7 +33,7 @@ use std::{
         atomic::{AtomicUsize, Ordering::SeqCst},
         Arc,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::sync::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
 #[cfg(feature = "transport_compression")]
@@ -216,6 +216,7 @@ impl TransportManagerBuilderUnicast {
             bail!("'qos' and 'lowlatency' options are incompatible");
         }
 
+        let start = Instant::now();
         let config = TransportManagerConfigUnicast {
             lease: self.lease,
             keep_alive: self.keep_alive,
@@ -231,7 +232,8 @@ impl TransportManagerBuilderUnicast {
             #[cfg(feature = "transport_compression")]
             is_compression: self.is_compression,
         };
-
+        println!("TransportManagerBuilderUnicast - TransportManagerConfigUnicast: {:#?}", start.elapsed());
+        let start = Instant::now();
         let state = TransportManagerStateUnicast {
             incoming: Arc::new(AtomicUsize::new(0)),
             protocols: Arc::new(AsyncMutex::new(HashMap::new())),
@@ -243,9 +245,11 @@ impl TransportManagerBuilderUnicast {
             #[cfg(feature = "transport_auth")]
             authenticator: Arc::new(self.authenticator),
         };
+        println!("TransportManagerBuilderUnicast - TransportManagerStateUnicast: {:#?}", start.elapsed());
+        let start = Instant::now();
 
         let params = TransportManagerParamsUnicast { config, state };
-
+        println!("TransportManagerBuilderUnicast - TransportManagerParamsUnicast: {:#?}", start.elapsed());
         Ok(params)
     }
 }
