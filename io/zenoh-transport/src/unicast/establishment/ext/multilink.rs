@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 //
 // Copyright (c) 2022 ZettaScale Technology
 //
@@ -40,10 +42,12 @@ impl MultiLink {
     where
         R: Rng + CryptoRng,
     {
+        let start = Instant::now();
         let pri_key = RsaPrivateKey::new(rng, KEY_SIZE)?;
         let pub_key = RsaPublicKey::from(&pri_key);
         let mut auth = AuthPubKey::new(pub_key.into(), pri_key.into());
         auth.disable_lookup();
+        println!("MultiLink - KeyPair: {:#?}", start.elapsed());
         Ok(Self {
             pubkey: RwLock::new(auth),
         })
