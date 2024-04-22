@@ -30,7 +30,7 @@ use futures::stream::StreamExt;
 use futures::Future;
 use std::any::Any;
 use std::sync::{Arc, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use uhlc::{HLCBuilder, HLC};
@@ -95,6 +95,7 @@ impl Runtime {
     }
 
     pub(crate) async fn init(config: Config) -> ZResult<Runtime> {
+        let start = Instant::now();
         log::debug!("Zenoh Rust API {}", GIT_VERSION);
 
         let zid = *config.id();
@@ -105,12 +106,16 @@ impl Runtime {
         let metadata = config.metadata().clone();
         let hlc = (*unwrap_or_default!(config.timestamping().enabled().get(whatami)))
             .then(|| Arc::new(HLCBuilder::new().with_id(uhlc::ID::from(&zid)).build()));
-
+        println!("RUNTIME - variables: {:#?}", start.elapsed());
+        let start = Instant::now();
         let router = Arc::new(Router::new(zid, whatami, hlc.clone(), &config)?);
-
+        println!("RUNTIME - router: {:#?}", start.elapsed());
+        let start = Instant::now();
         let handler = Arc::new(RuntimeTransportEventHandler {
             runtime: std::sync::RwLock::new(WeakRuntime { state: Weak::new() }),
         });
+        println!("RUNTIME - handler: {:#?}", start.elapsed());
+        let start = Instant::now();
 
         let transport_manager = TransportManager::builder()
             .from_config(&config)
@@ -118,7 +123,8 @@ impl Runtime {
             .whatami(whatami)
             .zid(zid)
             .build(handler.clone())?;
-
+        println!("RUNTIME - build transport manager: {:#?}", start.elapsed());
+        let start = Instant::now();
         let config = Notifier::new(config);
 
         let runtime = Runtime {
@@ -163,7 +169,7 @@ impl Runtime {
                 }
             }
         });
-
+        println!("RUNTIME - rest of init function: {:#?}", start.elapsed());
         Ok(runtime)
     }
 
