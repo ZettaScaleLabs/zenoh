@@ -75,6 +75,7 @@ zenoh-result = { workspace = true }
 zenoh-shm = { workspace = true, optional = true }
 zenoh-sync = { workspace = true }
 zenoh-util = { workspace = true }
+lazy_static = { workspace = true }
 
 [dev-dependencies]
 env_logger = { workspace = true }

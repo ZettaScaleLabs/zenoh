@@ -128,6 +128,17 @@ struct StageIn {
     fragbuf: ZBuf,
 }
 
+lazy_static::lazy_static! {
+    static ref ZENOH_NO_BATCHING: bool = {
+        let b = std::env::var("ZENOH_NO_BATCHING").is_ok();
+        if b {
+            log::info!("ZENOH_NO_BATCHING={b}");
+        }
+        b
+    };
+}
+
+
 impl StageIn {
     fn push_network_message(
         &mut self,
@@ -181,10 +192,15 @@ impl StageIn {
 
         macro_rules! zretok {
             ($batch:expr) => {{
-                let bytes = $batch.len();
-                *c_guard = Some($batch);
-                drop(c_guard);
-                self.s_out.notify(bytes);
+                if *ZENOH_NO_BATCHING {
+                    // Move out existing batch
+                    self.s_out.move_batch($batch);
+                } else {
+                    let bytes = $batch.len();
+                    *c_guard = Some($batch);
+                    drop(c_guard);
+                    self.s_out.notify(bytes);
+                }
                 return true;
             }};
         }

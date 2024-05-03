@@ -572,6 +572,8 @@ impl TransportManager {
         guard.insert(config.zid, t.clone());
         drop(guard);
 
+        start_tx_rx();
+
         // Notify manager's interface that there is a new transport
         transport_error!(
             self.notify_new_transport_unicast(&t),
@@ -581,7 +583,6 @@ impl TransportManager {
         // Notify transport's callback interface that there is a new link
         Self::notify_new_link_unicast(&t, c_link);
 
-        start_tx_rx();
 
         zcondfeat!(
             "shared-memory",
