@@ -48,8 +48,13 @@ impl<T: Send + 'static> IntoCallbackReceiverPair<'static, T>
         let (sender, receiver) = self;
         (
             Dyn::new(move |t| {
-                if let Err(e) = sender.send(t) {
-                    tracing::error!("{}", e)
+                if let Err(flume::TrySendError::Full(t)) = sender.try_send(t) {
+                    let sender = sender.clone();
+                    zenoh_runtime::ZRuntime::Net.spawn(async move {
+                        if let Err(e) = sender.send_async(t).await {
+                            tracing::error!("Failed to send on flume channel asynchronously: {}", e)
+                        }
+                    });
                 }
             }),
             receiver,
