@@ -15,7 +15,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_std::sync::RwLock;
 use async_trait::async_trait;
-use zenoh::{core::Result as ZResult, internal::Value, key_expr::OwnedKeyExpr, time::Timestamp};
+use zenoh::{
+    core::Result as ZResult, internal::Value, key_expr::OwnedKeyExpr, time::Timestamp, Session,
+};
 use zenoh_backend_traits::{
     config::{StorageConfig, VolumeConfig},
     *,
@@ -133,7 +135,10 @@ impl Storage for MemoryStorage {
         }
     }
 
-    async fn get_all_entries(&self) -> ZResult<Vec<(Option<OwnedKeyExpr>, Timestamp)>> {
+    async fn get_all_entries(
+        &self,
+        session: Arc<Session>,
+    ) -> ZResult<Vec<(Option<OwnedKeyExpr>, Timestamp)>> {
         let map = self.map.read().await;
         let mut result = Vec::with_capacity(map.len());
         for (k, v) in map.iter() {

@@ -83,7 +83,11 @@ impl Replica {
         rx: Receiver<StorageMessage>,
     ) {
         tracing::trace!("[REPLICA] Opening session...");
-        let startup_entries = match store_intercept.storage.get_all_entries().await {
+        let startup_entries = match store_intercept
+            .storage
+            .get_all_entries(session.clone())
+            .await
+        {
             Ok(entries) => {
                 let mut result = Vec::new();
                 for entry in entries {

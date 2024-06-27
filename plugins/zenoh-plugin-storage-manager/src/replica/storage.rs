@@ -582,7 +582,7 @@ impl StorageService {
         let mut result = Vec::new();
         // @TODO: if cache exists, use that to get the list
         let storage = self.storage.lock().await;
-        match storage.get_all_entries().await {
+        match storage.get_all_entries(self.session.clone()).await {
             Ok(entries) => {
                 for (k, _ts) in entries {
                     // @TODO: optimize adding back the prefix (possible inspiration from https://github.com/eclipse-zenoh/zenoh/blob/0.5.0-beta.9/backends/traits/src/utils.rs#L79)

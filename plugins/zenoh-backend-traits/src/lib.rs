@@ -121,6 +121,8 @@
 //! }
 //! ```
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use const_format::concatcp;
 use zenoh::{
@@ -128,6 +130,7 @@ use zenoh::{
     internal::Value,
     key_expr::{keyexpr, OwnedKeyExpr},
     time::Timestamp,
+    Session,
 };
 use zenoh_plugin_trait::{PluginControl, PluginInstance, PluginStatusRec, StructVersion};
 use zenoh_util::concat_enabled_features;
@@ -259,5 +262,8 @@ pub trait Storage: Send + Sync {
     /// Function called to get the list of all storage content (key, timestamp)
     /// The latest Timestamp corresponding to each key is either the timestamp of the delete or put whichever is the latest.
     /// Remember to fetch the entry corresponding to the `None` key
-    async fn get_all_entries(&self) -> ZResult<Vec<(Option<OwnedKeyExpr>, Timestamp)>>;
+    async fn get_all_entries(
+        &self,
+        session: Arc<Session>,
+    ) -> ZResult<Vec<(Option<OwnedKeyExpr>, Timestamp)>>;
 }

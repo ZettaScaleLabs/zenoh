@@ -11,11 +11,14 @@
 // Contributors:
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
-use std::collections::{hash_map::Entry, HashMap};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+};
 
 use async_std::sync::RwLock;
 use async_trait::async_trait;
-use zenoh::{internal::Value, key_expr::OwnedKeyExpr, prelude::*, time::Timestamp};
+use zenoh::{internal::Value, key_expr::OwnedKeyExpr, prelude::*, time::Timestamp, Session};
 use zenoh_backend_traits::{
     config::{StorageConfig, VolumeConfig},
     Capability, History, Persistence, Storage, StorageInsertionResult, StoredData, Volume,
@@ -114,7 +117,10 @@ impl Storage for ExampleStorage {
         }
     }
 
-    async fn get_all_entries(&self) -> ZResult<Vec<(Option<OwnedKeyExpr>, Timestamp)>> {
+    async fn get_all_entries(
+        &self,
+        session: Arc<Session>,
+    ) -> ZResult<Vec<(Option<OwnedKeyExpr>, Timestamp)>> {
         let map = self.map.read().await;
         let mut result = Vec::with_capacity(map.len());
         for (k, v) in map.iter() {
