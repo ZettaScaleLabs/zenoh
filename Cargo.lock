@@ -2035,7 +2035,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e310b3a6b5907f99202fcdb4960ff45b93735d7c7d96b760fcff8db2dc0e103d"
 dependencies = [
  "cfg-if 1.0.0",
- "windows-targets 0.52.5",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -3682,7 +3682,7 @@ dependencies = [
 [[package]]
 name = "socket2"
 version = "0.5.7"
-source = "git+https://github.com/ZettaScaleLabs/socket2.git?branch=qnx-port#5b2ccf1ea794519192ac517ad8bb51707d830288"
+source = "git+https://github.com/ZettaScaleLabs/socket2.git?branch=qnx-port#9f5e226b9429cf250cab7734cd55692598f36d58"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
