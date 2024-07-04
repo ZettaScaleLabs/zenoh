@@ -79,7 +79,7 @@ aes = "0.8.2"
 ahash = "0.8.7"
 anyhow = { version = "1.0.69", default-features = false } # Default features are disabled due to usage in no_std crates
 async-executor = "1.5.0"
-async-global-executor = "2.3.1"
+async-global-executor = "2.4.1"
 async-io = "2.3.3"
 async-trait = "0.1.60"
 base64 = "0.22.1"
@@ -238,3 +238,14 @@ lto = "fat"
 codegen-units = 1
 opt-level = 3
 panic = "abort"
+
+# Support for building for QNX
+[patch.crates-io]
+async-process = { git = "https://github.com/ZettaScaleLabs/async-process.git", branch = "qnx-port" }
+async-std = { git = "https://github.com/async-rs/async-std.git" }
+mio-serial = { git = "https://github.com/ZettaScaleLabs/mio-serial.git", branch = "qnx-port" }
+pnet_datalink = { git = "https://github.com/ZettaScaleLabs/libpnet.git", branch = "qnx-port" }
+polling = { git = "https://github.com/ZettaScaleLabs/polling.git", branch = "qnx-port" }
+ring = { git = "https://github.com/ZettaScaleLabs/ring.git", branch = "qnx-port" }
+socket2 = { git = "https://github.com/ZettaScaleLabs/socket2.git", branch = "qnx-port" }
+tokio = { git = "https://github.com/ZettaScaleLabs/tokio.git", branch = "qnx-port" }
