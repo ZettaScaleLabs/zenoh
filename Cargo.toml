@@ -241,3 +241,13 @@ lto = "fat"
 codegen-units = 1
 opt-level = 3
 panic = "abort"
+
+# Support for building for QNX
+[patch.crates-io]
+async-process = { git = "https://github.com/ZettaScaleLabs/async-process.git", branch = "qnx-port" }
+async-std = { git = "https://github.com/async-rs/async-std.git" }
+mio-serial = { git = "https://github.com/ZettaScaleLabs/mio-serial.git", branch = "qnx-port" }
+pnet_datalink = { git = "https://github.com/ZettaScaleLabs/libpnet.git", branch = "qnx-port" }
+polling = { git = "https://github.com/ZettaScaleLabs/polling.git", branch = "qnx-port" }
+ring = { git = "https://github.com/ZettaScaleLabs/ring.git", branch = "qnx-port" }
+socket2 = { git = "https://github.com/ZettaScaleLabs/socket2.git", branch = "qnx-port" }

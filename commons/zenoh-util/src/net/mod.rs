@@ -441,14 +441,14 @@ pub fn set_bind_to_device_udp_socket(socket: &UdpSocket, iface: &str) -> ZResult
     Ok(())
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "nto"))]
 pub fn set_bind_to_device_tcp_socket(socket: &TcpSocket, iface: &str) -> ZResult<()> {
-    tracing::warn!("Binding the socket {socket:?} to the interface {iface} is not supported on macOS and Windows");
+    tracing::warn!("Binding the socket {socket:?} to the interface {iface} is not supported on macOS, Windows amd QNX");
     Ok(())
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "nto"))]
 pub fn set_bind_to_device_udp_socket(socket: &UdpSocket, iface: &str) -> ZResult<()> {
-    tracing::warn!("Binding the socket {socket:?} to the interface {iface} is not supported on macOS and Windows");
+    tracing::warn!("Binding the socket {socket:?} to the interface {iface} is not supported on macOS, Windows and QNX");
     Ok(())
 }
