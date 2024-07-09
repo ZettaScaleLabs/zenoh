@@ -145,7 +145,7 @@ impl TransportUnicastLowlatency {
 
             loop {
                 tokio::time::sleep(HEARTBEAT_RX_INTERVAL).await;
-                tracing::trace!(target: HEARTBEAT_RX_TARGET, interval_ms = HEARTBEAT_RX_INTERVAL.as_millis());
+                tracing::trace!(target: HEARTBEAT_RX_TARGET, interval_ms = HEARTBEAT_RX_INTERVAL.as_millis(), transport_kind = "unicast-lowlatency");
             }
         }
 
