@@ -248,7 +248,7 @@ async fn rx_task(
     }
 
     async fn heartbeat() {
-        const HEARTBEAT_RX_INTERVAL: Duration = Duration::from_millis(100);
+        const HEARTBEAT_RX_INTERVAL: Duration = Duration::from_millis(500);
         const HEARTBEAT_RX_TARGET: &str = "zenoh::instrumentation::heartbeat::rx";
 
         loop {

@@ -140,7 +140,7 @@ impl TransportUnicastLowlatency {
 
     pub(super) fn internal_start_rx(&self, lease: Duration) {
         async fn heartbeat() {
-            const HEARTBEAT_RX_INTERVAL: Duration = Duration::from_millis(100);
+            const HEARTBEAT_RX_INTERVAL: Duration = Duration::from_millis(500);
             const HEARTBEAT_RX_TARGET: &str = "zenoh::instrumentation::heartbeat::rx";
 
             loop {
