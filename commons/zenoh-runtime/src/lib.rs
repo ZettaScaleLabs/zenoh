@@ -69,7 +69,21 @@ impl RuntimeParam {
                     .fetch_add(1, Ordering::SeqCst);
                 format!("{}-{}", zrt, id)
             })
+            .on_thread_start(|| {})
             .build()?;
+
+        rt.spawn(async move {
+            const HEARTBEAT_INTERVAL: Duration = Duration::from_millis(500);
+            const HEARTBEAT_TARGET: &str = "zenoh::instrumentation::heartbeat::runtime";
+
+            let zrt = zrt.to_string();
+
+            loop {
+                tokio::time::sleep(HEARTBEAT_INTERVAL).await;
+                tracing::trace!(target: HEARTBEAT_TARGET, runtime = &zrt, interval_ms = HEARTBEAT_INTERVAL.as_millis());
+            }
+        });
+
         Ok(rt)
     }
 }

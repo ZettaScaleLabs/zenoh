@@ -548,16 +548,6 @@ async fn rx_task(
         Ok((rbatch, locator))
     }
 
-    async fn heartbeat() {
-        const HEARTBEAT_RX_INTERVAL: Duration = Duration::from_millis(500);
-        const HEARTBEAT_RX_TARGET: &str = "zenoh::instrumentation::heartbeat::rx";
-
-        loop {
-            tokio::time::sleep(HEARTBEAT_RX_INTERVAL).await;
-            tracing::trace!(target: HEARTBEAT_RX_TARGET, interval_ms = HEARTBEAT_RX_INTERVAL.as_millis(), transport_kind = "multicast");
-        }
-    }
-
     // The pool of buffers
     let mtu = link.inner.config.batch.mtu as usize;
     let mut n = rx_buffer_size / mtu;
@@ -584,7 +574,6 @@ async fn rx_task(
                     &transport,
                 )?;
             }
-            _ = heartbeat() => continue
         }
     }
     Ok(())

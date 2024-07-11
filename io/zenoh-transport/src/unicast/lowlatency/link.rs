@@ -139,16 +139,6 @@ impl TransportUnicastLowlatency {
     }
 
     pub(super) fn internal_start_rx(&self, lease: Duration) {
-        async fn heartbeat() {
-            const HEARTBEAT_RX_INTERVAL: Duration = Duration::from_millis(500);
-            const HEARTBEAT_RX_TARGET: &str = "zenoh::instrumentation::heartbeat::rx";
-
-            loop {
-                tokio::time::sleep(HEARTBEAT_RX_INTERVAL).await;
-                tracing::trace!(target: HEARTBEAT_RX_TARGET, interval_ms = HEARTBEAT_RX_INTERVAL.as_millis(), transport_kind = "unicast-lowlatency");
-            }
-        }
-
         let rx_buffer_size = self.manager.config.link_rx_buffer_size;
         let token = self.token.child_token();
 
@@ -192,8 +182,6 @@ impl TransportUnicastLowlatency {
                     _ = token.cancelled() => {
                         break ZResult::Ok(());
                     }
-
-                    _ = heartbeat() => continue
                 }
             }
         };
