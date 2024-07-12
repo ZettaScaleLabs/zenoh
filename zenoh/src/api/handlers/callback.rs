@@ -42,7 +42,12 @@ impl<T: Send + 'static> IntoHandler<'static, T> for (flume::Sender<T>, flume::Re
         let (sender, receiver) = self;
         (
             Dyn::new(move |t| {
-                tracing::trace!(target: "zenoh::instrumentation::handler::send", handler_kind = "bounded_channel");
+                tracing::trace!(
+                    target: "zenoh::instrumentation::handler::send",
+                    handler_kind = "bounded_channel",
+                    thread_name = std::thread::current().name().unwrap_or("unknown"),
+                    backtrace = std::backtrace::Backtrace::capture().to_string()
+                );
                 if let Err(e) = sender.send(t) {
                     tracing::error!("{}", e)
                 }
