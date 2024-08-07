@@ -41,7 +41,8 @@ git-version = { workspace = true }
 json5 = { workspace = true }
 zenoh-collections = { workspace = true }
 tracing = { workspace = true }
-zenoh = { workspace = true, default-features = true }
+#zenoh = { workspace = true, default-features = true }
+zenoh = { workspace = true, default-features = false, features = ["auth_pubkey", "auth_usrpwd", "transport_multilink", "transport_compression", "transport_tcp", "transport_udp", "transport_ws"] }
 zenoh-ext = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
