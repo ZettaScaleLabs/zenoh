@@ -39,7 +39,8 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "time", "io-std"] }
 unwrap-infallible = { workspace = true }
-zenoh = { workspace = true, default-features = true }
+#zenoh = { workspace = true, default-features = true }
+zenoh = { workspace = true, default-features = false, features = ["auth_pubkey", "auth_usrpwd", "transport_multilink", "transport_compression", "transport_tcp", "transport_udp", "transport_ws"] }
 zenoh-ext = { workspace = true }
 
 [dev-dependencies]
