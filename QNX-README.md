@@ -23,7 +23,7 @@ The following Zenoh packages and features are currently supported:
 To build all of the above packages and features for the `x86_64-pc-nto-qnx710` target the command would be:
 
 ```
-cargo build --target x86_64-pc-nto-qnx710 -p zenoh --no-default-features --features auth_pubkeyauth_usrpwd,transport_multilink,transport_compression,transport_tcp,transport_udp,transport_ws -p zenoh-ext
+cargo build --target x86_64-pc-nto-qnx710 -p zenoh --no-default-features --features auth_pubkey,auth_usrpwd,transport_multilink,transport_compression,transport_tcp,transport_udp,transport_ws -p zenoh-ext
 ```
 
 ## Supported Examples
