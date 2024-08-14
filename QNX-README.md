@@ -67,7 +67,7 @@ source ~/qnx710/qnxsdp-env.sh
 3. Checkout Rust:
         
 ```bash
-git clone https://github.com/rust-lang/rust.git
+git clone --recurse-submodules https://github.com/rust-lang/rust.git
 cd rust
 git checkout 1.75.0
 ```
