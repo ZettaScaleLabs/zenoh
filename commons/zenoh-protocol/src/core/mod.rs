@@ -367,6 +367,16 @@ impl Reliability {
     }
 }
 
+impl From<bool> for Reliability {
+    fn from(value: bool) -> Self {
+        if value {
+            Reliability::Reliable
+        } else {
+            Reliability::BestEffort
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub struct Channel {
     pub priority: Priority,

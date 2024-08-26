@@ -37,7 +37,7 @@ use crate::unicast::establishment::ext::auth::UsrPwdId;
 use crate::{
     common::batch::BatchConfig,
     unicast::{
-        establishment::{compute_sn, ext, OpenFsm},
+        establishment::{compute_sn, ext, link_priority, link_reliability, OpenFsm},
         link::{
             LinkUnicastWithOpenAck, TransportLinkUnicast, TransportLinkUnicastConfig,
             TransportLinkUnicastDirection,
@@ -540,15 +540,18 @@ pub(crate) async fn open_link(
     link: LinkUnicast,
     manager: &TransportManager,
 ) -> ZResult<TransportUnicast> {
+    let direction = TransportLinkUnicastDirection::Outbound;
     let is_streamed = link.is_streamed();
     let config = TransportLinkUnicastConfig {
-        direction: TransportLinkUnicastDirection::Outbound,
+        direction,
         batch: BatchConfig {
             mtu: link.get_mtu(),
             is_streamed,
             #[cfg(feature = "transport_compression")]
             is_compression: false, // Perform the exchange Init/Open exchange with no compression
         },
+        reliability: link_reliability(&link),
+        priority: link_priority(&link, direction)?,
     };
     let mut link = TransportLinkUnicast::new(link, config);
     let mut fsm = OpenLink {
@@ -577,7 +580,11 @@ pub(crate) async fn open_link(
                 .min(batch_size::UNICAST)
                 .min(link.config.batch.mtu),
             resolution: manager.config.resolution,
-            ext_qos: ext::qos::StateOpen::new(manager.config.unicast.is_qos),
+            ext_qos: ext::qos::StateOpen::new(
+                manager.config.unicast.is_qos,
+                &link.link,
+                direction,
+            )?,
             #[cfg(feature = "transport_multilink")]
             ext_mlink: manager
                 .state
@@ -659,13 +666,15 @@ pub(crate) async fn open_link(
     };
 
     let o_config = TransportLinkUnicastConfig {
-        direction: TransportLinkUnicastDirection::Outbound,
+        direction,
         batch: BatchConfig {
             mtu: state.transport.batch_size,
             is_streamed,
             #[cfg(feature = "transport_compression")]
             is_compression: state.link.ext_compression.is_compression(),
         },
+        reliability: link_reliability(&link.link),
+        priority: link_priority(&link.link, direction)?,
     };
     let o_link = link.reconfigure(o_config);
     let s_link = format!("{:?}", o_link);

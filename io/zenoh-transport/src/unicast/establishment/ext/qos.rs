@@ -12,6 +12,7 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 use core::marker::PhantomData;
+use std::ops::Range;
 
 use async_trait::async_trait;
 use zenoh_buffers::{
@@ -19,10 +20,18 @@ use zenoh_buffers::{
     writer::{DidntWrite, Writer},
 };
 use zenoh_codec::{RCodec, WCodec, Zenoh080};
-use zenoh_protocol::transport::{init, open};
-use zenoh_result::Error as ZError;
+use zenoh_core::{bail, zerror};
+use zenoh_link::LinkUnicast;
+use zenoh_protocol::{
+    core::Priority,
+    transport::{init, open},
+};
+use zenoh_result::{Error as ZError, ZResult};
 
-use crate::unicast::establishment::{AcceptFsm, OpenFsm};
+use crate::unicast::{
+    establishment::{AcceptFsm, OpenFsm},
+    link::TransportLinkUnicastDirection,
+};
 
 // Extension Fsm
 pub(crate) struct QoSFsm<'a> {
@@ -38,18 +47,58 @@ impl<'a> QoSFsm<'a> {
 /*************************************/
 /*              OPEN                 */
 /*************************************/
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct StateOpen {
-    is_qos: bool,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum StateOpen {
+    Disabled,
+    Enabled { priorities: Option<Range<u8>> },
 }
 
 impl StateOpen {
-    pub(crate) const fn new(is_qos: bool) -> Self {
-        Self { is_qos }
+    pub(crate) fn new(
+        is_qos: bool,
+        link: &LinkUnicast,
+        direction: TransportLinkUnicastDirection,
+    ) -> ZResult<Self> {
+        if is_qos {
+            Ok(Self::Disabled)
+        } else {
+            const PRIORITY_METADATA_KEY: &str = "priorities";
+
+            let link_locator = match direction {
+                TransportLinkUnicastDirection::Inbound => link.get_src(),
+                TransportLinkUnicastDirection::Outbound => link.get_dst(),
+            };
+
+            let link_locator_metadata = link_locator.metadata();
+
+            let Some(priorities_raw) = link_locator_metadata.get(PRIORITY_METADATA_KEY) else {
+                return Ok(Self::Enabled { priorities: None });
+            };
+            let mut chunks = priorities_raw.split("..");
+            let start = chunks
+                .next()
+                .ok_or(zerror!("Invalid priority range syntax"))?
+                .parse::<u8>()?;
+            if start < Priority::MIN as u8 {
+                bail!("Invalid priority range start: {start}")
+            }
+
+            let end = chunks
+                .next()
+                .ok_or(zerror!("Invalid priority range syntax"))?
+                .parse::<u8>()?;
+            if end > Priority::MAX as u8 {
+                bail!("Invalid priority range end: {end}")
+            }
+
+            Ok(Self::Enabled {
+                priorities: Some(start..end),
+            })
+        }
     }
 
-    pub(crate) const fn is_qos(&self) -> bool {
-        self.is_qos
+    pub(crate) fn is_qos(&self) -> bool {
+        self != &Self::Disabled
     }
 }
 
@@ -63,8 +112,7 @@ impl<'a> OpenFsm for &'a QoSFsm<'a> {
         self,
         state: Self::SendInitSynIn,
     ) -> Result<Self::SendInitSynOut, Self::Error> {
-        let output = state.is_qos.then_some(init::ext::QoS::new());
-        Ok(output)
+        todo!()
     }
 
     type RecvInitAckIn = (&'a mut StateOpen, Option<init::ext::QoS>);
@@ -74,8 +122,7 @@ impl<'a> OpenFsm for &'a QoSFsm<'a> {
         input: Self::RecvInitAckIn,
     ) -> Result<Self::RecvInitAckOut, Self::Error> {
         let (state, other_ext) = input;
-        state.is_qos &= other_ext.is_some();
-        Ok(())
+        todo!()
     }
 
     type SendOpenSynIn = &'a StateOpen;
@@ -160,8 +207,7 @@ impl<'a> AcceptFsm for &'a QoSFsm<'a> {
         input: Self::RecvInitSynIn,
     ) -> Result<Self::RecvInitSynOut, Self::Error> {
         let (state, other_ext) = input;
-        state.is_qos &= other_ext.is_some();
-        Ok(())
+        todo!()
     }
 
     type SendInitAckIn = &'a StateAccept;
@@ -170,8 +216,7 @@ impl<'a> AcceptFsm for &'a QoSFsm<'a> {
         self,
         state: Self::SendInitAckIn,
     ) -> Result<Self::SendInitAckOut, Self::Error> {
-        let output = state.is_qos.then_some(init::ext::QoS::new());
-        Ok(output)
+        todo!()
     }
 
     type RecvOpenSynIn = (&'a mut StateAccept, Option<open::ext::QoS>);

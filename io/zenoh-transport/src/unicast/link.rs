@@ -16,7 +16,10 @@ use std::{fmt, sync::Arc};
 use zenoh_buffers::{BBuf, ZSlice, ZSliceBuffer};
 use zenoh_core::zcondfeat;
 use zenoh_link::{Link, LinkUnicast};
-use zenoh_protocol::transport::{BatchSize, Close, OpenAck, TransportMessage};
+use zenoh_protocol::{
+    core::{Priority, Reliability},
+    transport::{BatchSize, Close, OpenAck, TransportMessage},
+};
 use zenoh_result::{zerror, ZResult};
 
 use crate::common::batch::{BatchConfig, Decode, Encode, Finalize, RBatch, WBatch};
@@ -32,6 +35,8 @@ pub(crate) struct TransportLinkUnicastConfig {
     // Inbound / outbound
     pub(crate) direction: TransportLinkUnicastDirection,
     pub(crate) batch: BatchConfig,
+    pub(crate) reliability: Reliability,
+    pub(crate) priority: Option<Priority>,
 }
 
 #[derive(Clone, PartialEq, Eq)]

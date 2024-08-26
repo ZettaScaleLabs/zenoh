@@ -40,7 +40,9 @@ use crate::shm::TransportShmConfig;
 use crate::{
     common::batch::BatchConfig,
     unicast::{
-        establishment::{compute_sn, ext, AcceptFsm, Cookie, Zenoh080Cookie},
+        establishment::{
+            compute_sn, ext, link_priority, link_reliability, AcceptFsm, Cookie, Zenoh080Cookie,
+        },
         link::{
             LinkUnicastWithOpenAck, TransportLinkUnicast, TransportLinkUnicastConfig,
             TransportLinkUnicastDirection,
@@ -637,16 +639,19 @@ impl<'a, 'b: 'a> AcceptFsm for &'a mut AcceptLink<'b> {
 }
 
 pub(crate) async fn accept_link(link: LinkUnicast, manager: &TransportManager) -> ZResult<()> {
+    let direction = TransportLinkUnicastDirection::Inbound;
     let mtu = link.get_mtu();
     let is_streamed = link.is_streamed();
     let config = TransportLinkUnicastConfig {
-        direction: TransportLinkUnicastDirection::Inbound,
+        direction,
         batch: BatchConfig {
             mtu,
             is_streamed,
             #[cfg(feature = "transport_compression")]
             is_compression: false,
         },
+        reliability: link_reliability(&link),
+        priority: link_priority(&link, direction)?,
     };
     let mut link = TransportLinkUnicast::new(link, config);
     let mut fsm = AcceptLink {
@@ -771,13 +776,15 @@ pub(crate) async fn accept_link(link: LinkUnicast, manager: &TransportManager) -
     };
 
     let a_config = TransportLinkUnicastConfig {
-        direction: TransportLinkUnicastDirection::Inbound,
+        direction,
         batch: BatchConfig {
             mtu: state.transport.batch_size,
             is_streamed,
             #[cfg(feature = "transport_compression")]
             is_compression: state.link.ext_compression.is_compression(),
         },
+        reliability: link_reliability(&link.link),
+        priority: link_priority(&link.link, direction)?,
     };
     let a_link = link.reconfigure(a_config);
     let s_link = format!("{:?}", a_link);

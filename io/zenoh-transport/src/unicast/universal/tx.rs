@@ -11,51 +11,56 @@
 // Contributors:
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
-use zenoh_core::zread;
-use zenoh_protocol::network::NetworkMessage;
+use zenoh_protocol::{core::Reliability, network::NetworkMessage};
 
 use super::transport::TransportUnicastUniversal;
 #[cfg(feature = "shared-memory")]
 use crate::shm::map_zmsg_to_partner;
+use crate::unicast::transport_unicast_inner::TransportUnicastTrait;
 
 impl TransportUnicastUniversal {
     fn schedule_on_link(&self, msg: NetworkMessage) -> bool {
-        macro_rules! zpush {
-            ($guard:expr, $pipeline:expr, $msg:expr) => {
-                // Drop the guard before the push_zenoh_message since
-                // the link could be congested and this operation could
-                // block for fairly long time
-                let pl = $pipeline.clone();
-                drop($guard);
-                tracing::trace!("Scheduled: {:?}", $msg);
-                return pl.push_network_message($msg);
-            };
-        }
+        let transport_links = self
+            .links
+            .read()
+            .expect("reading `TransportUnicastUniversal::links` should not fail");
 
-        let guard = zread!(self.links);
-        // First try to find the best match between msg and link reliability
-        if let Some(pl) = guard.iter().find_map(|tl| {
-            if msg.is_reliable() == tl.link.link.is_reliable() {
-                Some(&tl.pipeline)
-            } else {
-                None
-            }
-        }) {
-            zpush!(guard, pl, msg);
-        }
+        let msg_reliability = Reliability::from(msg.is_reliable());
 
-        // No best match found, take the first available link
-        if let Some(pl) = guard.iter().map(|tl| &tl.pipeline).next() {
-            zpush!(guard, pl, msg);
-        }
+        let Some(transport_link) = transport_links
+            .iter()
+            .find(|transport_link| {
+                transport_link.link.config.reliability == msg_reliability
+                    && transport_link.link.config.priority == Some(msg.priority())
+            })
+            .or_else(|| {
+                transport_links.iter().find(|transport_link| {
+                    transport_link.link.config.reliability == msg_reliability
+                })
+            })
+            .or_else(|| transport_links.first())
+        else {
+            tracing::trace!(
+                "Message dropped because the transport has no links: {}",
+                msg
+            );
 
-        // No Link found
+            // No Link found
+            return false;
+        };
+
+        let pipeline = transport_link.pipeline.clone();
         tracing::trace!(
-            "Message dropped because the transport has no links: {}",
-            msg
+            "Scheduled {:?} for transmission to {} ({})",
+            msg,
+            transport_link.link.link.get_dst(),
+            self.get_zid()
         );
-
-        false
+        // Drop the guard before the push_zenoh_message since
+        // the link could be congested and this operation could
+        // block for fairly long time
+        drop(transport_links);
+        pipeline.push_network_message(msg)
     }
 
     #[allow(unused_mut)] // When feature "shared-memory" is not enabled

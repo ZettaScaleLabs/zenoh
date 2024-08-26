@@ -191,6 +191,17 @@ impl Default for LinkTxConf {
             batch_size: BatchSize::MAX,
             queue: QueueConf::default(),
             threads: num,
+            batching: true,
+        }
+    }
+}
+
+impl Default for QueueConf {
+    fn default() -> Self {
+        Self {
+            size: QueueSizeConf::default(),
+            congestion_control: CongestionControlConf::default(),
+            backoff: 100,
         }
     }
 }

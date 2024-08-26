@@ -22,11 +22,14 @@ use sha3::{
     digest::{ExtendableOutput, Update, XofReader},
     Shake128,
 };
+use zenoh_link::LinkUnicast;
 use zenoh_protocol::{
-    core::{Field, Resolution, ZenohIdProto},
+    core::{Field, Priority, Reliability, Resolution, ZenohIdProto},
     transport::TransportSn,
 };
+use zenoh_result::ZResult;
 
+use super::link::TransportLinkUnicastDirection;
 use crate::common::seq_num;
 
 /*************************************/
@@ -115,4 +118,34 @@ pub(super) fn compute_sn(
     let mut array = (0 as TransportSn).to_le_bytes();
     hasher.finalize_xof().read(&mut array);
     TransportSn::from_le_bytes(array) & seq_num::get_mask(resolution.get(Field::FrameSN))
+}
+
+pub(super) fn link_reliability(link: &LinkUnicast) -> Reliability {
+    if link.is_reliable() {
+        Reliability::Reliable
+    } else {
+        Reliability::BestEffort
+    }
+}
+
+pub(super) fn link_priority(
+    link: &LinkUnicast,
+    direction: TransportLinkUnicastDirection,
+) -> ZResult<Option<Priority>> {
+    const PRIORITY_METADATA_KEY: &str = "priority";
+
+    let link_locator = match direction {
+        TransportLinkUnicastDirection::Inbound => link.get_src(),
+        TransportLinkUnicastDirection::Outbound => link.get_dst(),
+    };
+
+    let link_locator_metadata = link_locator.metadata();
+
+    let Some(priority_raw) = link_locator_metadata.get(PRIORITY_METADATA_KEY) else {
+        return Ok(None);
+    };
+
+    let priority = Priority::try_from(priority_raw.parse::<u8>()?)?;
+
+    Ok(Some(priority))
 }
