@@ -59,21 +59,13 @@ QNX support for Rust is not yet available via the `rustup` command. Instead, it 
 1. Ensure the QNX Software Development Platform (SDP) is installed and configured on the host machine.
 
 2. Setup the QNX environment:
-    
+
 ```bash
 source ~/qnx710/qnxsdp-env.sh
 ```
-    
-3. Checkout Rust:
-        
-```bash
-git clone --recurse-submodules https://github.com/rust-lang/rust.git
-cd rust
-git checkout 1.75.0
-```
-        
-4. Configure the environment to build for QNX:
-        
+
+3. Configure the environment to build for QNX:
+
 ```bash
 export build_env='
   CC_aarch64-unknown-nto-qnx710=qcc
@@ -85,38 +77,33 @@ export build_env='
   CXX_x86_64-pc-nto-qnx710=qcc
   AR_x86_64_pc_nto_qnx710=ntox86_64-ar'
  ```
-        
-5. Configure the build with the `x.py` utility, choosing `(d) dist`:
-        
+
+4. Checkout Rust:
+
 ```bash
-./x.py setup
+git clone -b 1.75.0 https://github.com/rust-lang/rust.git
 ```
-        
-6. Edit the generated `config.toml` file to specify a custom install location for Rust by adding the following lines:
-        
+
+5. Configure the build:
+
 ```bash
-install.prefix = "<install location>"
-install.sysconfdir = "<install location>/etc"
+cd rust
+./configure --set install.prefix=<install location> --set install.sysconfdir=<install location>/etc
 ```
-        
-7. Build Rust for QNX x86 and aarch64:
-        
+
+6. Build Rust for the QNX x86_64 and aarch64 targets:
+
 ```bash
-env $build_env \
-./x.py build \
---target aarch64-unknown-nto-qnx710,x86_64-pc-nto-qnx710
-```
-        
-       
-6. Install Rust:
-        
+env $build_env ./x.py build --target aarch64-unknown-nto-qnx710,x86_64-pc-nto-qnx710,x86_64-unknown-linux-gnu cargo rustc library/core library/alloc library/std
+```      
+
+7. Install Rust:
+
 ```bash
-env $build_env \
-  ./x.py install \
-  --target aarch64-unknown-nto-qnx710,x86_64-pc-nto-qnx710
+env $build_env ./x.py install --target aarch64-unknown-nto-qnx710,x86_64-pc-nto-qnx710,x86_64-unknown-linux-gnu cargo rustc library/std
 ```
-        
-7. Add the custom build of Rust with support for QNX to the `PATH` and `LD_LIBRARY_PATH`:
+
+8. Add the custom build of Rust with support for QNX to the `PATH` and `LD_LIBRARY_PATH`:
     
 ```bash
 export PATH=<install location>/bin:$PATH
