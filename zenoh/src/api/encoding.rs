@@ -112,16 +112,6 @@ impl Encoding {
         id: 2,
         schema: None,
     });
-    /// A zenoh error.
-    ///
-    /// Constant alias for string: `"zenoh/error"`.
-    ///
-    /// Usually used for types: `ReplyError`.
-    pub const ZENOH_ERROR: Encoding = Self(zenoh_protocol::core::Encoding {
-        id: 15,
-        schema: None,
-    });
-
     // - Advanced types may be supported in some of the Zenoh bindings.
     /// An application-specific stream of bytes.
     ///
@@ -479,7 +469,6 @@ impl Encoding {
         0u16 => "zenoh/bytes",
         1u16 => "zenoh/string",
         2u16 => "zenoh/serialized",
-        15u16 => "zenoh/error",
         16u16 => "application/octet-stream",
         17u16 => "text/plain",
         18u16 => "application/json",
@@ -536,7 +525,6 @@ impl Encoding {
         "zenoh/bytes" => 0u16,
         "zenoh/string" => 1u16,
         "zenoh/serialized" => 2u16,
-        "zenoh/error" => 15u16,
         "application/octet-stream" => 16u16,
         "text/plain" => 17u16,
         "application/json" => 18u16,
