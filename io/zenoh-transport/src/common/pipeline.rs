@@ -628,10 +628,10 @@ impl TransmissionPipelineProducer {
         } else {
             self.wait_before_close
         };
-        let deadline = (!wait_time.is_zero()).then_some(Instant::now().checked_add(wait_time));
+        //let deadline = (!wait_time.is_zero()).then_some(Instant::now().checked_add(wait_time));
         // Lock the channel. We are the only one that will be writing on it.
         let mut queue = zlock!(self.stage_in[idx]);
-        queue.push_network_message(&mut msg, priority, deadline)
+        queue.push_network_message(&mut msg, priority, Some(None))
     }
 
     #[inline]
