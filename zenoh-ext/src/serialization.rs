@@ -6,13 +6,9 @@ use std::{
     io::{Read, Write},
     marker::PhantomData,
     mem::MaybeUninit,
-    str::FromStr,
 };
 
-use zenoh::{
-    bytes::{Encoding, ZBytes, ZBytesReader, ZBytesWriter},
-    time::{Timestamp, TimestampId, NTP64},
-};
+use zenoh::bytes::{ZBytes, ZBytesReader, ZBytesWriter};
 
 #[derive(Debug)]
 pub struct ZDeserializeError;
@@ -466,6 +462,7 @@ mod tests {
     use std::ops::Range;
 
     use rand::{thread_rng, Rng};
+    use zenoh::time::{Timestamp, TimestampId, NTP64};
 
     use super::*;
 
