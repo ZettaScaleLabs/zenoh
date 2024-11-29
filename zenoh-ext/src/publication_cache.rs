@@ -214,7 +214,7 @@ impl PublicationCache {
 
         // TODO(yuyuan): use CancellationToken to manage it
         let token = TerminatableTask::create_cancellation_token();
-        let token2 = token.clone();
+        let token2 = token.child_token();
         let task = TerminatableTask::spawn(
             ZRuntime::Application,
             async move {
