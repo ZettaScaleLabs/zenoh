@@ -225,6 +225,7 @@ impl PublicationCache {
                     tokio::select! {
                         // on publication received by the local subscriber, store it
                         sample = sub_recv.recv_async() => {
+                            dbg!(token2.is_cancelled());
                             if let Ok(sample) = sample {
                                 let queryable_key_expr: KeyExpr<'_> = if let Some(prefix) = &queryable_prefix {
                                     prefix.join(&sample.key_expr()).unwrap().into()
@@ -250,6 +251,7 @@ impl PublicationCache {
 
                         // on query, reply with cached content
                         query = quer_recv.recv_async() => {
+                            dbg!(token2.is_cancelled());
                             if let Ok(query) = query {
                                 if !query.key_expr().as_str().contains('*') {
                                     if let Some(queue) = cache.get(query.key_expr().as_keyexpr()) {
