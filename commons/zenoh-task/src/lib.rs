@@ -187,6 +187,8 @@ impl TerminatableTask {
     /// Async version of [`TerminatableTask::terminate()`].
     pub async fn terminate_async(&mut self, timeout: Duration) -> bool {
         self.token.cancel();
+        dbg!(self.token.is_cancelled());
+        dbg!(self.handle.is_some());
         if let Some(handle) = self.handle.take() {
             if tokio::time::timeout(timeout, handle).await.is_err() {
                 tracing::error!("Failed to terminate the task");
