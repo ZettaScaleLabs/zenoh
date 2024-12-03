@@ -39,6 +39,7 @@ serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "time", "io-std"] }
 zenoh = { workspace = true, default-features = true }
 zenoh-ext = { workspace = true, features = ["unstable"] }
+cdr = "0.2.4"
 
 [dev-dependencies]
 rand = { workspace = true, features = ["default"] }

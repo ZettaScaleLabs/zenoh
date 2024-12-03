@@ -25,7 +25,7 @@ async fn main() {
     #[cfg(feature = "unstable")]
     let (config, key_expr, payload, attachment, add_matching_listener) = parse_args();
     #[cfg(not(feature = "unstable"))]
-    let (config, key_expr, payload, attachment, _) = parse_args();
+    let (config, key_expr, payload, _attachment, _) = parse_args();
 
     println!("Opening session...");
     let session = zenoh::open(config).await.unwrap();
@@ -50,15 +50,36 @@ async fn main() {
     }
 
     println!("Press CTRL-C to quit...");
+    use zenoh_ext::ZSerializer;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let start = SystemTime::now();
+
     for idx in 0..u32::MAX {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let buf = format!("[{idx:4}] {payload}");
-        println!("Putting Data ('{}': '{}')...", &key_expr, buf);
-        // Refer to z_bytes.rs to see how to serialize different types of message
+        let context = format!("[{idx:4}] {payload}");
+
+        println!("Putting Data ('{}': '{}')...", &key_expr, &context);
+
+        // Serialize the string with CDR.
+        use cdr::{CdrLe, Infinite};
+        let buf = cdr::serialize::<_, _, CdrLe>(&context, Infinite).unwrap();
+
+        // Construct the required attachment for rmw_zenoh.
+        let mut ser = ZSerializer::new();
+        ser.serialize("sequence_number");
+        ser.serialize(idx as i64);
+        ser.serialize("source_timestamp");
+        ser.serialize(start.duration_since(UNIX_EPOCH).unwrap().as_millis() as i64);
+        ser.serialize("source_gid");
+        ser.serialize([1; 16]);
+        let bytes = ser.finish();
+
+        // Publish the serialized data with bytes encoding
         publisher
             .put(buf)
-            .encoding(Encoding::TEXT_PLAIN) // Optionally set the encoding metadata 
-            .attachment(attachment.clone()) // Optionally add an attachment
+            .encoding(Encoding::ZENOH_BYTES)
+            .attachment(bytes)
             .await
             .unwrap();
     }
