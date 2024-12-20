@@ -13,7 +13,7 @@
 //
 use std::sync::MutexGuard;
 
-use zenoh_core::{zlock, zread};
+use zenoh_core::{zasyncread, zlock};
 use zenoh_link::Link;
 use zenoh_protocol::{
     core::{Priority, Reliability},
@@ -101,7 +101,9 @@ impl TransportUnicastUniversal {
             // Drop invalid message and continue
             return Ok(());
         }
-        let callback = zread!(self.callback).clone();
+
+        use zenoh_runtime::ZRuntime;
+        let callback = ZRuntime::Net.block_in_place(async { zasyncread!(self.callback).clone() });
         if let Some(callback) = callback.as_ref() {
             for msg in payload.drain(..) {
                 self.trigger_callback(callback.as_ref(), msg)?;
@@ -175,7 +177,9 @@ impl TransportUnicastUniversal {
         if !more {
             // When shared-memory feature is disabled, msg does not need to be mutable
             if let Some(msg) = guard.defrag.defragment() {
-                let callback = zread!(self.callback).clone();
+                use zenoh_runtime::ZRuntime;
+                let callback =
+                    ZRuntime::Net.block_in_place(async { zasyncread!(self.callback).clone() });
                 if let Some(callback) = callback.as_ref() {
                     return self.trigger_callback(callback.as_ref(), msg);
                 } else {

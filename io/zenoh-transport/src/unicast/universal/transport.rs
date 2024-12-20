@@ -11,15 +11,11 @@
 // Contributors:
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
-use std::{
-    fmt::DebugStruct,
-    sync::{Arc, RwLock},
-    time::Duration,
-};
+use std::{fmt::DebugStruct, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use tokio::sync::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
-use zenoh_core::{zasynclock, zcondfeat, zread, zwrite};
+use zenoh_core::{zasynclock, zasyncread, zasyncwrite, zcondfeat};
 use zenoh_link::Link;
 use zenoh_protocol::{
     core::{Priority, WhatAmI, ZenohIdProto},
@@ -41,6 +37,7 @@ use crate::{
     },
     TransportManager, TransportPeerEventHandler,
 };
+use tokio::sync::RwLock as AsyncRwLock;
 
 /*************************************/
 /*        UNIVERSAL TRANSPORT        */
@@ -56,9 +53,9 @@ pub(crate) struct TransportUnicastUniversal {
     // Rx priorities
     pub(super) priority_rx: Arc<[TransportPriorityRx]>,
     // The links associated to the channel
-    pub(super) links: Arc<RwLock<Box<[TransportLinkUnicastUniversal]>>>,
+    pub(super) links: Arc<AsyncRwLock<Box<[TransportLinkUnicastUniversal]>>>,
     // The callback
-    pub(super) callback: Arc<RwLock<Option<Arc<dyn TransportPeerEventHandler>>>>,
+    pub(super) callback: Arc<AsyncRwLock<Option<Arc<dyn TransportPeerEventHandler>>>>,
     // Lock used to ensure no race in add_link method
     add_link_lock: Arc<AsyncMutex<()>>,
     // Mutex for notification
@@ -104,9 +101,9 @@ impl TransportUnicastUniversal {
             config,
             priority_tx: priority_tx.into_boxed_slice().into(),
             priority_rx: priority_rx.into_boxed_slice().into(),
-            links: Arc::new(RwLock::new(vec![].into_boxed_slice())),
+            links: Arc::new(AsyncRwLock::new(vec![].into_boxed_slice())),
             add_link_lock: Arc::new(AsyncMutex::new(())),
-            callback: Arc::new(RwLock::new(None)),
+            callback: Arc::new(AsyncRwLock::new(None)),
             alive: Arc::new(AsyncMutex::new(false)),
             #[cfg(feature = "stats")]
             stats,
@@ -129,16 +126,20 @@ impl TransportUnicastUniversal {
         // to avoid concurrent new_transport and closing/closed notifications
         let mut a_guard = self.get_alive().await;
         *a_guard = false;
-        let callback = zwrite!(self.callback).take();
+
+        let mut guard = zasyncwrite!(self.callback);
+        let callback = guard.take();
+        zenoh_core::zdrop!(guard, "WRITE DROP");
 
         // Delete the transport on the manager
         let _ = self.manager.del_transport_unicast(&self.config.zid).await;
 
         // Close all the links
         let mut links = {
-            let mut l_guard = zwrite!(self.links);
+            let mut l_guard = zasyncwrite!(self.links);
             let links = l_guard.to_vec();
             *l_guard = vec![].into_boxed_slice();
+            zenoh_core::zdrop!(l_guard, "WRITE DROP");
             links
         };
         for l in links.drain(..) {
@@ -149,6 +150,8 @@ impl TransportUnicastUniversal {
         if let Some(cb) = callback.as_ref() {
             cb.closed();
         }
+
+        zenoh_core::zdrop!(a_guard, "LOCK DROP");
 
         Ok(())
     }
@@ -161,7 +164,7 @@ impl TransportUnicastUniversal {
 
         // Try to remove the link
         let target = {
-            let mut guard = zwrite!(self.links);
+            let mut guard = zasyncwrite!(self.links);
 
             if let Some(index) = guard.iter().position(|tl| {
                 // Compare LinkUnicast link to not compare TransportLinkUnicast direction
@@ -175,17 +178,18 @@ impl TransportUnicastUniversal {
                 let is_last = guard.len() == 1;
                 if is_last {
                     // Close the whole transport
-                    drop(guard);
+                    zenoh_core::zdrop!(guard, "WRITE DROP");
                     Target::Transport
                 } else {
                     // Remove the link
                     let mut links = guard.to_vec();
                     let stl = links.remove(index);
                     *guard = links.into_boxed_slice();
-                    drop(guard);
+                    zenoh_core::zdrop!(guard, "WRITE DROP");
                     Target::Link(stl.into())
                 }
             } else {
+                zenoh_core::zdrop!(guard, "WRITE DROP");
                 bail!(
                     "Can not delete Link {} with peer: {}",
                     link,
@@ -195,7 +199,11 @@ impl TransportUnicastUniversal {
         };
 
         // Notify the callback
-        if let Some(callback) = zread!(self.callback).as_ref() {
+        let callback_guard = zasyncread!(self.callback);
+        let mut cb = callback_guard.clone();
+        zenoh_core::zdrop!(callback_guard, "READ DROP");
+        if let Some(callback) = cb.take() {
+            // LUCA: MAYBE A DEADLOCK HERE???
             callback.del_link(link);
         }
 
@@ -212,9 +220,9 @@ impl TransportUnicastUniversal {
         if *a_guard {
             let e = zerror!("Transport already synched with peer: {}", self.config.zid);
             tracing::trace!("{}", e);
+            zenoh_core::zdrop!(a_guard, "LOCK DROP");
             return Err(e.into());
         }
-
         *a_guard = true;
 
         let csn = PrioritySn {
@@ -224,6 +232,8 @@ impl TransportUnicastUniversal {
         for c in self.priority_rx.iter() {
             c.sync(csn)?;
         }
+
+        zenoh_core::zdrop!(a_guard, "LOCK DROP");
 
         Ok(())
     }
@@ -244,12 +254,13 @@ impl TransportUnicastTrait for TransportUnicastUniversal {
 
         // Check if we can add more inbound links
         {
-            let guard = zread!(self.links);
+            let guard = zasyncread!(self.links);
             if let TransportLinkUnicastDirection::Inbound = link.inner_config().direction {
                 let count = guard
                     .iter()
                     .filter(|l| l.link.config.direction == link.inner_config().direction)
                     .count();
+                zenoh_core::zdrop!(guard, "READ DROP");
 
                 let limit = zcondfeat!(
                     "transport_multilink",
@@ -268,6 +279,7 @@ impl TransportUnicastTrait for TransportUnicastUniversal {
                         count,
                         limit
                     );
+                    zenoh_core::zdrop!(add_link_guard, "LOCK DROP");
                     return Err((e.into(), link.fail(), close::reason::MAX_LINKS));
                 }
             }
@@ -282,13 +294,12 @@ impl TransportUnicastTrait for TransportUnicastUniversal {
             TransportLinkUnicastUniversal::new(self, link, &self.priority_tx);
 
         // Add the link to the channel
-        let mut guard = zwrite!(self.links);
+        let mut guard = zasyncwrite!(self.links);
         let mut links = Vec::with_capacity(guard.len() + 1);
         links.extend_from_slice(&guard);
         links.push(link.clone());
         *guard = links.into_boxed_slice();
-
-        drop(guard);
+        zenoh_core::zdrop!(guard, "WRITE DROP");
 
         // create a callback to start the link
         let transport = self.clone();
@@ -313,7 +324,12 @@ impl TransportUnicastTrait for TransportUnicastUniversal {
     /*            ACCESSORS              */
     /*************************************/
     fn set_callback(&self, callback: Arc<dyn TransportPeerEventHandler>) {
-        *zwrite!(self.callback) = Some(callback);
+        use zenoh_runtime::ZRuntime;
+        ZRuntime::Net.block_in_place(async {
+            let mut w_guard = zasyncwrite!(self.callback);
+            *w_guard = Some(callback);
+            zenoh_core::zdrop!(w_guard, "WRITE DROP");
+        });
     }
 
     async fn get_alive(&self) -> AsyncMutexGuard<'_, bool> {
@@ -338,7 +354,13 @@ impl TransportUnicastTrait for TransportUnicastUniversal {
     }
 
     fn get_callback(&self) -> Option<Arc<dyn TransportPeerEventHandler>> {
-        zread!(self.callback).clone()
+        use zenoh_runtime::ZRuntime;
+        ZRuntime::Net.block_in_place(async {
+            let guard = zasyncread!(self.callback);
+            let cb = guard.clone();
+            zenoh_core::zdrop!(guard, "READ DROP");
+            cb
+        })
     }
 
     fn get_config(&self) -> &TransportConfigUnicast {
@@ -356,10 +378,15 @@ impl TransportUnicastTrait for TransportUnicastUniversal {
     async fn close(&self, reason: u8) -> ZResult<()> {
         tracing::trace!("Closing transport with peer: {}", self.config.zid);
 
-        let mut pipelines = zread!(self.links)
+        use zenoh_runtime::ZRuntime;
+
+        let guard = ZRuntime::Net.block_in_place(async { zasyncread!(self.links) });
+        let mut pipelines = guard
             .iter()
             .map(|sl| sl.pipeline.clone())
             .collect::<Vec<_>>();
+        zenoh_core::zdrop!(guard, "READ DROP");
+
         for p in pipelines.drain(..) {
             // Close message to be sent on all the links
             // session should always be true for user-triggered close. However, in case of
@@ -378,16 +405,28 @@ impl TransportUnicastTrait for TransportUnicastUniversal {
     }
 
     fn get_links(&self) -> Vec<Link> {
-        zread!(self.links).iter().map(|l| l.link.link()).collect()
+        use zenoh_runtime::ZRuntime;
+        ZRuntime::Net.block_in_place(async {
+            let guard = zasyncread!(self.links);
+            let r = guard.iter().map(|l| l.link.link()).collect();
+            zenoh_core::zdrop!(guard, "READ DROP");
+            r
+        })
     }
 
     fn get_auth_ids(&self) -> Vec<AuthId> {
+        use zenoh_runtime::ZRuntime;
+
         // Convert LinkUnicast auth ids to AuthId
         #[allow(unused_mut)]
-        let mut auth_ids: Vec<AuthId> = zread!(self.links)
+        let mut guard = ZRuntime::Net.block_in_place(async { zasyncread!(self.links) });
+        #[allow(unused_mut)]
+        let mut auth_ids: Vec<AuthId> = guard
             .iter()
             .map(|l| l.link.link.get_auth_id().to_owned().into())
             .collect();
+
+        zenoh_core::zdrop!(guard, "READ DROP");
         // Convert usrpwd auth id to AuthId
         #[cfg(feature = "auth_usrpwd")]
         auth_ids.push(self.config.auth_id.clone().into());

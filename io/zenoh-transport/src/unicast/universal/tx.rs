@@ -1,3 +1,4 @@
+use zenoh_core::zasyncread;
 //
 // Copyright (c) 2023 ZettaScale Technology
 //
@@ -70,10 +71,8 @@ impl TransportUnicastUniversal {
     }
 
     fn schedule_on_link(&self, msg: NetworkMessage) -> ZResult<bool> {
-        let transport_links = self
-            .links
-            .read()
-            .expect("reading `TransportUnicastUniversal::links` should not fail");
+        use zenoh_runtime::ZRuntime;
+        let transport_links = ZRuntime::Net.block_in_place(async { zasyncread!(self.links) });
 
         let Some(transport_link_index) = Self::select(
             transport_links.iter().map(|tl| {
@@ -111,7 +110,7 @@ impl TransportUnicastUniversal {
         // Drop the guard before the push_zenoh_message since
         // the link could be congested and this operation could
         // block for fairly long time
-        drop(transport_links);
+        zenoh_core::zdrop!(transport_links, "READ DROP");
         let droppable = msg.is_droppable();
         let push = pipeline.push_network_message(msg)?;
         if !push && !droppable {

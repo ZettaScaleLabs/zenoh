@@ -104,6 +104,7 @@ impl fmt::Debug for NotifyError {
 impl std::error::Error for NotifyError {}
 
 // Inner
+#[derive(Debug)]
 struct EventInner {
     event: EventLib,
     flag: AtomicU8,
@@ -205,6 +206,7 @@ impl Drop for Notifier {
     }
 }
 
+#[derive(Debug)]
 #[repr(transparent)]
 pub struct Waiter(Arc<EventInner>);
 

@@ -376,19 +376,23 @@ impl<'a, 'b: 'a> AcceptFsm for &'a mut AcceptLink<'b> {
             ext_patch: state.transport.ext_patch,
         };
 
-        let mut encrypted = vec![];
-        let mut writer = encrypted.writer();
-        let mut codec = Zenoh080Cookie {
-            prng: &mut *zasynclock!(self.prng),
-            cipher: self.cipher,
-            codec: Zenoh080::new(),
+        let encrypted = {
+            let mut encrypted = vec![];
+            let mut writer = encrypted.writer();
+            let mut prng = zasynclock!(self.prng);
+            let mut codec = Zenoh080Cookie {
+                prng: &mut prng,
+                cipher: self.cipher,
+                codec: Zenoh080::new(),
+            };
+            codec.write(&mut writer, &cookie).map_err(|_| {
+                (
+                    zerror!("Encoding cookie failed").into(),
+                    Some(close::reason::INVALID),
+                )
+            })?;
+            encrypted
         };
-        codec.write(&mut writer, &cookie).map_err(|_| {
-            (
-                zerror!("Encoding cookie failed").into(),
-                Some(close::reason::INVALID),
-            )
-        })?;
         let cookie: ZSlice = encrypted.into();
 
         // Send the message on the link

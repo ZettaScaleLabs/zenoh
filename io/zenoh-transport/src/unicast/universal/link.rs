@@ -35,6 +35,16 @@ use crate::{
     unicast::link::{TransportLinkUnicast, TransportLinkUnicastRx, TransportLinkUnicastTx},
 };
 
+impl Drop for TransportLinkUnicastUniversal {
+    fn drop(&mut self) {
+        tracing::error!(
+            "Dropping {:?}",
+            self.link,
+            // std::backtrace::Backtrace::force_capture()
+        );
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct TransportLinkUnicastUniversal {
     // The underlying link
@@ -275,13 +285,18 @@ async fn rx_task(
     loop {
         tokio::select! {
             batch = tokio::time::timeout(lease, read(link, &pool)) => {
-                let batch = batch.map_err(|_| zerror!("{}: expired after {} milliseconds", link, lease.as_millis()))??;
-                #[cfg(feature = "stats")]
-                {
-
-                    transport.stats.inc_rx_bytes(2 + batch.len()); // Account for the batch len encoding (16 bits)
+                if let Ok(batch) = batch {
+                    transport.read_messages(batch?, &l)?;
+                } else {
+                    tracing::warn!("{}: expired after {} milliseconds", link, lease.as_millis());
                 }
-                transport.read_messages(batch, &l)?;
+                // let batch = batch.map_err(|_| zerror!("{}: expired after {} milliseconds", link, lease.as_millis()))??;
+                // #[cfg(feature = "stats")]
+                // {
+
+                //     transport.stats.inc_rx_bytes(2 + batch.len()); // Account for the batch len encoding (16 bits)
+                // }
+                // transport.read_messages(batch, &l)?;
             }
 
             _ = token.cancelled() => break

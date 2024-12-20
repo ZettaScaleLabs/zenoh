@@ -105,7 +105,7 @@ git-version = "0.3.9"
 hashbrown = "0.14"
 hex = { version = "0.4.3", default-features = false } # Default features are disabled due to usage in no_std crates
 hmac = { version = "0.12.1", features = ["std"] }
-home = "=0.5.9"
+home = "0.5.9"
 http-types = "2.12.0"
 humantime = "2.1.0"
 itertools = "0.13.0"
@@ -169,7 +169,7 @@ syn = "2.0"
 tide = "0.16.0"
 time = "0.3.36"
 token-cell = { version = "1.5.0", default-features = false }
-tokio = { version = "1.40.0", default-features = false } # Default features are disabled due to some crates' requirements
+tokio = { version = "1.42.0", default-features = false } # Default features are disabled due to some crates' requirements
 tokio-util = "0.7.12"
 tokio-tungstenite = "0.24.0"
 tokio-rustls = { version = "0.26.0", default-features = false }

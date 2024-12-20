@@ -42,12 +42,64 @@ macro_rules! zwrite {
     };
 }
 
+#[macro_export]
+macro_rules! zprintln {
+    ($var:expr, $txt:expr) => {{
+        let t = std::thread::current();
+        let id = tokio::task::try_id()
+            .map(|i| format!("{i}"))
+            .unwrap_or_else(|| String::from("none"));
+        let s = stringify!($var);
+        println!(
+            "{} {}:{} {}:{} {} {}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+            t.name().unwrap(),
+            id,
+            file!(),
+            line!(),
+            $txt,
+            s
+        );
+    }};
+}
+
+#[macro_export]
+macro_rules! zdrop {
+    ($var:expr, $txt:expr) => {{
+        use zenoh_core::zprintln;
+        drop($var);
+        zprintln!($var, $txt);
+    }};
+}
+
 // This macro performs an async lock on Mutex<T>
 #[macro_export]
 macro_rules! zasynclock {
-    ($var:expr) => {
-        $var.lock().await
-    };
+    ($var:expr) => {{
+        use zenoh_core::zprintln;
+        zprintln!($var, "LOCK WAIT");
+        match tokio::time::timeout(tokio::time::Duration::from_secs(5), $var.lock()).await {
+            Ok(g) => {
+                zprintln!($var, "LOCK ACQUIRED");
+                g
+            }
+            Err(_) => {
+                zprintln!($var, "LOCK BLOCKED");
+                let handle = tokio::runtime::Handle::current();
+                let dump = handle.dump().await;
+                for task in dump.tasks().iter() {
+                    let trace = task.trace();
+                    println!("TASK {}:", task.id());
+                    println!("{trace}\n");
+                }
+                std::future::pending::<()>().await;
+                $var.lock().await
+            }
+        }
+    }};
 }
 
 // This macro performs an async read on RwLock<T>
@@ -55,13 +107,33 @@ macro_rules! zasynclock {
 // if it fails, it falls back on read().await
 #[macro_export]
 macro_rules! zasyncread {
-    ($var:expr) => {
-        if let Ok(g) = $var.try_read() {
-            g
-        } else {
-            $var.read().await
+    ($var:expr) => {{
+        use zenoh_core::zprintln;
+        zprintln!($var, "READ WAIT");
+        match tokio::time::timeout(tokio::time::Duration::from_secs(5), $var.read()).await {
+            Ok(g) => {
+                zprintln!($var, "READ ACQUIRED");
+                g
+            }
+            Err(_) => {
+                zprintln!($var, "READ BLOCKED");
+                let handle = tokio::runtime::Handle::current();
+                let dump = handle.dump().await;
+                for task in dump.tasks().iter() {
+                    let trace = task.trace();
+                    println!("TASK {}:", task.id());
+                    println!("{trace}\n");
+                }
+                std::future::pending::<()>().await;
+                $var.read().await
+            }
         }
-    };
+        // if let Ok(g) = $var.try_read() {
+        //     g
+        // } else {
+        //     $var.read().await
+        // }
+    }};
 }
 
 // This macro performs an async write on RwLock<T>
@@ -69,13 +141,33 @@ macro_rules! zasyncread {
 // if it fails, it falls back on write().await
 #[macro_export]
 macro_rules! zasyncwrite {
-    ($var:expr) => {
-        if let Ok(g) = $var.try_write() {
-            g
-        } else {
-            $var.write().await
+    ($var:expr) => {{
+        use zenoh_core::zprintln;
+        zprintln!($var, "WRITE WAIT");
+        match tokio::time::timeout(tokio::time::Duration::from_secs(5), $var.write()).await {
+            Ok(g) => {
+                zprintln!($var, "WRITE ACQUIRED");
+                g
+            }
+            Err(_) => {
+                zprintln!($var, "WRITE BLOCKED");
+                let handle = tokio::runtime::Handle::current();
+                let dump = handle.dump().await;
+                for task in dump.tasks().iter() {
+                    let trace = task.trace();
+                    println!("TASK {}:", task.id());
+                    println!("{trace}\n");
+                }
+                std::future::pending::<()>().await;
+                $var.write().await
+            }
         }
-    };
+        // if let Ok(g) = $var.try_write() {
+        //     g
+        // } else {
+        //     $var.write().await
+        // }
+    }};
 }
 
 // This macro returns &T from RwLock<Option<T>>

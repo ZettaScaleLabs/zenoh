@@ -36,3 +36,6 @@ tokio = { workspace = true, features = ["rt"] }
 lazy_static = { workspace = true }
 zenoh-result = { workspace = true }
 zenoh-runtime = { workspace = true }
+
+[build]
+rustflags = ["--cfg", "tokio_unstable", "--cfg", "tokio_taskdump"]

@@ -26,7 +26,7 @@ use zenoh_config::CompressionUnicastConf;
 #[cfg(feature = "shared-memory")]
 use zenoh_config::ShmConf;
 use zenoh_config::{Config, LinkTxConf, QoSUnicastConf, TransportUnicastConf};
-use zenoh_core::{zasynclock, zcondfeat};
+use zenoh_core::{zasynclock, zcondfeat, zprintln};
 use zenoh_crypto::PseudoRng;
 use zenoh_link::*;
 use zenoh_protocol::{
@@ -311,10 +311,12 @@ impl TransportManager {
     pub async fn close_unicast(&self) {
         tracing::trace!("TransportManagerUnicast::clear())");
 
-        let mut pl_guard = zasynclock!(self.state.unicast.protocols)
+        let mut protocols = zasynclock!(self.state.unicast.protocols);
+        let mut pl_guard = protocols
             .drain()
             .map(|(_, v)| v)
             .collect::<Vec<Arc<dyn LinkManagerUnicastTrait>>>();
+        zenoh_core::zdrop!(protocols, "LOCK DROP");
 
         for pl in pl_guard.drain(..) {
             for ep in pl.get_listeners().await.iter() {
@@ -322,12 +324,16 @@ impl TransportManager {
             }
         }
 
-        let mut tu_guard = zasynclock!(self.state.unicast.transports)
+        let mut transports = zasynclock!(self.state.unicast.transports);
+        let mut tu_guard = transports
             .drain()
             .map(|(_, v)| v)
             .collect::<Vec<Arc<dyn TransportUnicastTrait>>>();
+        zenoh_core::zdrop!(transports, "LOCK DROP");
         for tu in tu_guard.drain(..) {
-            let _ = tu.close(close::reason::GENERIC).await;
+            let _ = tokio::time::timeout(Duration::from_secs(1), tu.close(close::reason::GENERIC))
+                .await
+                .unwrap();
         }
     }
 
@@ -345,32 +351,50 @@ impl TransportManager {
 
         let mut w_guard = zasynclock!(self.state.unicast.protocols);
         if let Some(lm) = w_guard.get(protocol) {
-            Ok(lm.clone())
+            let lm = lm.clone();
+            zenoh_core::zdrop!(w_guard, "LOCK DROP");
+            Ok(lm)
         } else {
             let lm =
                 LinkManagerBuilderUnicast::make(self.new_unicast_link_sender.clone(), protocol)?;
             w_guard.insert(protocol.to_string(), lm.clone());
+            zenoh_core::zdrop!(w_guard, "LOCK DROP");
             Ok(lm)
         }
     }
 
     async fn get_link_manager_unicast(&self, protocol: &str) -> ZResult<LinkManagerUnicast> {
-        match zasynclock!(self.state.unicast.protocols).get(protocol) {
-            Some(manager) => Ok(manager.clone()),
-            None => bail!(
-                "Can not get the link manager for protocol ({}) because it has not been found",
-                protocol
-            ),
+        let guard = zasynclock!(self.state.unicast.protocols);
+        match guard.get(protocol) {
+            Some(manager) => {
+                let manager = manager.clone();
+                zenoh_core::zdrop!(guard, "LOCK DROP");
+                Ok(manager)
+            }
+            None => {
+                zenoh_core::zdrop!(guard, "LOCK DROP");
+                bail!(
+                    "Can not get the link manager for protocol ({}) because it has not been found",
+                    protocol
+                )
+            }
         }
     }
 
     async fn del_link_manager_unicast(&self, protocol: &str) -> ZResult<()> {
-        match zasynclock!(self.state.unicast.protocols).remove(protocol) {
-            Some(_) => Ok(()),
-            None => bail!(
+        let mut w_guard = zasynclock!(self.state.unicast.protocols);
+        match w_guard.remove(protocol) {
+            Some(_) => {
+                zenoh_core::zdrop!(w_guard, "LOCK DROP");
+                Ok(())
+            }
+            None => {
+                zenoh_core::zdrop!(w_guard, "LOCK DROP");
+                bail!(
                 "Can not delete the link manager for protocol ({}) because it has not been found.",
                 protocol
-            ),
+            )
+            }
         }
     }
 
@@ -421,17 +445,21 @@ impl TransportManager {
 
     pub async fn get_listeners_unicast(&self) -> Vec<EndPoint> {
         let mut vec: Vec<EndPoint> = vec![];
-        for p in zasynclock!(self.state.unicast.protocols).values() {
+        let w_guard = zasynclock!(self.state.unicast.protocols);
+        for p in w_guard.values() {
             vec.extend_from_slice(&p.get_listeners().await);
         }
+        zenoh_core::zdrop!(w_guard, "LOCK DROP");
         vec
     }
 
     pub async fn get_locators_unicast(&self) -> Vec<Locator> {
         let mut vec: Vec<Locator> = vec![];
-        for p in zasynclock!(self.state.unicast.protocols).values() {
+        let w_guard = zasynclock!(self.state.unicast.protocols);
+        for p in w_guard.values() {
             vec.extend_from_slice(&p.get_locators().await);
         }
+        zenoh_core::zdrop!(w_guard, "LOCK DROP");
         vec
     }
 
@@ -529,13 +557,14 @@ impl TransportManager {
         link: LinkUnicastWithOpenAck,
         other_initial_sn: TransportSn,
         other_lease: Duration,
-        mut guard: AsyncMutexGuard<'_, HashMap<ZenohIdProto, Arc<dyn TransportUnicastTrait>>>,
+        mut transports: AsyncMutexGuard<'_, HashMap<ZenohIdProto, Arc<dyn TransportUnicastTrait>>>,
     ) -> InitTransportResult {
         macro_rules! link_error {
             ($s:expr, $reason:expr) => {
                 match $s {
                     Ok(output) => output,
                     Err(e) => {
+                        zenoh_core::zdrop!(transports, "LOCK DROP");
                         return Err(InitTransportError::Link((e, link.fail(), $reason)));
                     }
                 }
@@ -543,13 +572,14 @@ impl TransportManager {
         }
 
         // Verify that we haven't reached the transport number limit
-        if guard.len() >= self.config.unicast.max_sessions {
+        if transports.len() >= self.config.unicast.max_sessions {
             let e = zerror!(
                 "Max transports reached ({}). Denying new transport with peer: {}",
                 self.config.unicast.max_sessions,
                 config.zid
             );
             tracing::trace!("{e}");
+            zenoh_core::zdrop!(transports, "LOCK DROP add_link");
             return Err(InitTransportError::Link((
                 e.into(),
                 link.fail(),
@@ -598,8 +628,8 @@ impl TransportManager {
         transport_error!(ack.send_open_ack().await, close::reason::GENERIC);
 
         // Add the transport transport to the list of active transports
-        guard.insert(config.zid, t.clone());
-        drop(guard);
+        transports.insert(config.zid, t.clone());
+        zenoh_core::zdrop!(transports, "LOCK DROP");
 
         start_tx();
 
@@ -614,7 +644,7 @@ impl TransportManager {
 
         start_rx();
 
-        drop(add_link_guard);
+        zenoh_core::zdrop!(add_link_guard, "LOCK DROP");
 
         zcondfeat!(
             "shared-memory",
@@ -659,11 +689,11 @@ impl TransportManager {
     ) -> ZResult<TransportUnicast> {
         // First verify if the transport already exists
         let init_result = {
-            let guard = zasynclock!(self.state.unicast.transports);
-            match guard.get(&config.zid) {
+            let transports = zasynclock!(self.state.unicast.transports);
+            match transports.get(&config.zid) {
                 Some(transport) => {
                     let transport = transport.clone();
-                    drop(guard);
+                    zenoh_core::zdrop!(transports, "LOCK DROP");
                     self.init_existing_transport_unicast(
                         config,
                         link,
@@ -679,7 +709,7 @@ impl TransportManager {
                         link,
                         other_initial_sn,
                         other_lease,
-                        guard,
+                        transports,
                     )
                     .await
                 }
@@ -743,26 +773,32 @@ impl TransportManager {
     }
 
     pub async fn get_transport_unicast(&self, peer: &ZenohIdProto) -> Option<TransportUnicast> {
-        zasynclock!(self.state.unicast.transports)
+        let transports = zasynclock!(self.state.unicast.transports);
+        let r = transports
             .get(peer)
-            .map(|t| TransportUnicast(Arc::downgrade(t)))
+            .map(|t| TransportUnicast(Arc::downgrade(t)));
+        zenoh_core::zdrop!(transports, "LOCK DROP");
+        r
     }
 
     pub async fn get_transports_unicast(&self) -> Vec<TransportUnicast> {
-        zasynclock!(self.state.unicast.transports)
+        let transports = zasynclock!(self.state.unicast.transports);
+        let r = transports
             .values()
             .map(|t| TransportUnicast(Arc::downgrade(t)))
-            .collect()
+            .collect();
+        zenoh_core::zdrop!(transports, "LOCK DROP");
+        r
     }
 
     pub(super) async fn del_transport_unicast(&self, peer: &ZenohIdProto) -> ZResult<()> {
-        zasynclock!(self.state.unicast.transports)
-            .remove(peer)
-            .ok_or_else(|| {
-                let e = zerror!("Can not delete the transport of peer: {}", peer);
-                tracing::trace!("{}", e);
-                e
-            })?;
+        let mut transports = zasynclock!(self.state.unicast.transports);
+        transports.remove(peer).ok_or_else(|| {
+            let e = zerror!("Can not delete the transport of peer: {}", peer);
+            tracing::trace!("{}", e);
+            e
+        })?;
+        zenoh_core::zdrop!(transports, "LOCK DROP");
         Ok(())
     }
 
