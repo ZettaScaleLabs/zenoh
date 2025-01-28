@@ -402,6 +402,14 @@ impl TransportUnicastTrait for TransportUnicastUniversal {
         self.internal_schedule(msg).map(|_| ())
     }
 
+    fn schedule_batch(&self, batch: &mut dyn Iterator<Item = NetworkMessage>) -> ZResult<()> {
+        // TODO: replace with pre-batched scheduling primitive
+        for msg in batch {
+            self.schedule(msg)?;
+        }
+        Ok(())
+    }
+
     fn add_debug_fields<'a, 'b: 'a, 'c>(
         &self,
         s: &'c mut DebugStruct<'a, 'b>,

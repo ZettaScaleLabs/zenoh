@@ -135,6 +135,12 @@ impl TransportUnicast {
     }
 
     #[inline(always)]
+    pub fn schedule_batch(&self, batch: &mut dyn Iterator<Item = NetworkMessage>) -> ZResult<()> {
+        let transport = self.get_inner()?;
+        transport.schedule_batch(batch)
+    }
+
+    #[inline(always)]
     pub async fn close(&self) -> ZResult<()> {
         // Return Ok if the transport has already been closed
         match self.get_inner() {

@@ -231,6 +231,13 @@ impl TransportUnicastTrait for TransportUnicastLowlatency {
         self.internal_schedule(msg)
     }
 
+    fn schedule_batch(&self, batch: &mut dyn Iterator<Item = NetworkMessage>) -> ZResult<()> {
+        for msg in batch {
+            self.schedule(msg)?;
+        }
+        Ok(())
+    }
+
     /*************************************/
     /*               LINK                */
     /*************************************/
