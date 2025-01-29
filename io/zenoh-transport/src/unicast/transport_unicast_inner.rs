@@ -85,7 +85,13 @@ pub(crate) trait TransportUnicastTrait: Send + Sync {
     /*                TX                 */
     /*************************************/
     fn schedule(&self, msg: NetworkMessage) -> ZResult<()>;
-    fn schedule_batch(&self, batch: &mut dyn Iterator<Item = NetworkMessage>) -> ZResult<()>;
+
+    fn schedule_batch(&self, batch: &mut dyn Iterator<Item = NetworkMessage>) -> ZResult<()> {
+        for msg in batch {
+            self.schedule(msg)?;
+        }
+        Ok(())
+    }
 
     /*************************************/
     /*            TERMINATION            */
