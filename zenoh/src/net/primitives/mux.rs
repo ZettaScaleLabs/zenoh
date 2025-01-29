@@ -98,6 +98,41 @@ impl EPrimitives for Mux {
         }
     }
 
+    fn send_declare_batch(&self, ctxs: Vec<RoutingContext<Declare>>) {
+        let mut declares_iter = ctxs
+            .into_iter()
+            .filter_map(|ctx| {
+                let ctx = RoutingContext {
+                    msg: NetworkMessage {
+                        body: NetworkBody::Declare(ctx.msg),
+                        reliability: Reliability::Reliable,
+                        #[cfg(feature = "stats")]
+                        size: None,
+                    },
+                    inface: ctx.inface,
+                    outface: ctx.outface,
+                    prefix: ctx.prefix,
+                    full_expr: ctx.full_expr,
+                };
+                let prefix = ctx
+                    .wire_expr()
+                    .and_then(|we| (!we.has_suffix()).then(|| ctx.prefix()))
+                    .flatten()
+                    .cloned();
+                let cache = prefix
+                    .as_ref()
+                    .and_then(|p| p.get_egress_cache(ctx.outface.get().unwrap()));
+                if let Some(ctx) = self.interceptor.intercept(ctx, cache) {
+                    return Some(ctx.msg);
+                }
+                None
+            })
+            .peekable();
+        if declares_iter.peek().is_some() {
+            let _ = self.handler.schedule_batch(&mut declares_iter);
+        }
+    }
+
     fn send_push(&self, msg: Push, reliability: Reliability) {
         let msg = NetworkMessage {
             body: NetworkBody::Push(msg),

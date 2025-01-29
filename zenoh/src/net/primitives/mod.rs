@@ -48,6 +48,12 @@ pub(crate) trait EPrimitives: Send + Sync {
 
     fn send_declare(&self, ctx: RoutingContext<Declare>);
 
+    fn send_declare_batch(&self, ctxs: Vec<RoutingContext<Declare>>) {
+        for ctx in ctxs {
+            self.send_declare(ctx);
+        }
+    }
+
     fn send_push(&self, msg: Push, reliability: Reliability);
 
     fn send_request(&self, msg: Request);
