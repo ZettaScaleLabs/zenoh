@@ -13,6 +13,7 @@
 //
 use std::sync::OnceLock;
 
+use itertools::Itertools;
 use zenoh_protocol::{
     core::Reliability,
     network::{
@@ -99,7 +100,7 @@ impl EPrimitives for Mux {
     }
 
     fn send_declare_batch(&self, ctxs: Vec<RoutingContext<Declare>>) {
-        let mut declares_iter = ctxs
+        let mut declares = ctxs
             .into_iter()
             .filter_map(|ctx| {
                 let ctx = RoutingContext {
@@ -127,9 +128,16 @@ impl EPrimitives for Mux {
                 }
                 None
             })
-            .peekable();
-        if declares_iter.peek().is_some() {
-            let _ = self.handler.schedule_batch(&mut declares_iter);
+            // NOTE: We Need to collect now to run the filter_map closure, or the interceptors will execute during pipeline batching
+            //       This additional allocation could be optimized out when self.interceptor.interceptors.is_empty()
+            .collect_vec();
+        // Avoid calling transport with manual batching if we only have one message
+        if declares.len() == 1 {
+            let _ = self
+                .handler
+                .schedule(declares.pop().expect("should only contain one element"));
+        } else if declares.len() > 1 {
+            let _ = self.handler.schedule_batch(&mut declares.into_iter());
         }
     }
 
