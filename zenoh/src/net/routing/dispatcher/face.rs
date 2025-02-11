@@ -183,7 +183,12 @@ impl FaceState {
     }
 
     pub(crate) fn regen_interceptors(&self, factories: &[InterceptorFactory]) {
-        if let Some(mux) = self.primitives.as_any().downcast_ref::<&mut Mux>() {
+        tracing::trace!("!!!!!!!!!!!!!!!!!!!!!! regen_interceptors");
+        if let Some(mux) = self.primitives.as_any().downcast_ref::<Mux>() {
+            tracing::trace!("!!!!!!!!!!!!!!!!!!!!!! regen_interceptors: Mux!!");
+        }
+        if let Some(mux) = self.primitives.as_any().downcast_ref::<Mux>() {
+            tracing::trace!("!!!!!!!!!!!!!!!!!!!!!! regen_interceptors: new_transport_unicast");
             let (ingress, egress): (Vec<_>, Vec<_>) = factories
                 .iter()
                 .map(|itor| itor.new_transport_unicast(&mux.handler))
@@ -197,7 +202,8 @@ impl FaceState {
             mux.interceptor.store(Arc::new(egress));
             self.in_interceptors.store(Some(ingress));
         }
-        if let Some(mux) = self.primitives.as_any().downcast_ref::<&mut McastMux>() {
+        if let Some(mux) = self.primitives.as_any().downcast_ref::<McastMux>() {
+            tracing::trace!("!!!!!!!!!!!!!!!!!!!!!! regen_interceptors: new_transport_multicast");
             let interceptor = InterceptorsChain::from(
                 factories
                     .iter()
@@ -207,6 +213,7 @@ impl FaceState {
             mux.interceptor.store(Arc::new(interceptor));
         }
         if let Some(transport) = &self.mcast_group {
+            tracing::trace!("!!!!!!!!!!!!!!!!!!!!!! regen_interceptors: new_peer_multicast");
             let interceptor = Arc::new(InterceptorsChain::from(
                 factories
                     .iter()

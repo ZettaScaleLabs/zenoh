@@ -23,7 +23,7 @@ use std::{
     },
 };
 
-use zenoh::{key_expr::KeyExpr, Config, Wait};
+use zenoh::{key_expr::KeyExpr, Config, Session, Wait};
 use zenoh_config::{DownsamplingItemConf, DownsamplingRuleConf, InterceptorFlow};
 
 // Tokio's time granularity on different platforms
@@ -74,8 +74,8 @@ fn build_config(
 }
 
 fn downsampling_test<F>(
-    pub_config: Config,
-    sub_config: Config,
+    pub_session: Arc<Session>,
+    sub_session: Arc<Session>,
     ke_prefix: &str,
     ke_of_rates: Vec<KeyExpr<'static>>,
     rate_check: F,
@@ -91,7 +91,6 @@ fn downsampling_test<F>(
             .collect(),
     );
 
-    let sub_session = zenoh::open(sub_config).wait().unwrap();
     let _sub = sub_session
         .declare_subscriber(format!("{ke_prefix}/*"))
         .callback({
@@ -107,11 +106,11 @@ fn downsampling_test<F>(
 
     let is_terminated = Arc::new(AtomicBool::new(false));
     let c_is_terminated = is_terminated.clone();
+    let pub_session_clone = Arc::clone(&pub_session);
     let handle = std::thread::spawn(move || {
-        let pub_session = zenoh::open(pub_config).wait().unwrap();
         let publishers: Vec<_> = ke_of_rates
             .into_iter()
-            .map(|ke| pub_session.declare_publisher(ke).wait().unwrap())
+            .map(|ke| pub_session_clone.declare_publisher(ke).wait().unwrap())
             .collect();
         let interval = std::time::Duration::from_millis(MINIMAL_SLEEP_INTERVAL_MS);
         while !c_is_terminated.load(Ordering::SeqCst) {
@@ -185,8 +184,9 @@ fn downsampling_by_keyexpr_impl(flow: InterceptorFlow) {
     };
 
     let (pub_config, sub_config) = build_config(locator, vec![ds_config], flow);
-
-    downsampling_test(pub_config, sub_config, ke_prefix, ke_of_rates, rate_check);
+    let pub_session = Arc::new(zenoh::open(pub_config).wait().unwrap());
+    let sub_session = Arc::new(zenoh::open(sub_config).wait().unwrap());
+    downsampling_test(pub_session, sub_session, ke_prefix, ke_of_rates, rate_check);
 }
 
 #[test]
@@ -240,7 +240,9 @@ fn downsampling_by_interface_impl(flow: InterceptorFlow) {
 
     let (pub_config, sub_config) = build_config(locator, ds_config, flow);
 
-    downsampling_test(pub_config, sub_config, ke_prefix, ke_of_rates, rate_check);
+    let pub_session = Arc::new(zenoh::open(pub_config).wait().unwrap());
+    let sub_session = Arc::new(zenoh::open(sub_config).wait().unwrap());
+    downsampling_test(pub_session, sub_session, ke_prefix, ke_of_rates, rate_check);
 }
 
 #[cfg(unix)]
@@ -265,8 +267,8 @@ fn downsampling_config_error_wrong_strategy() {
                 {
                   flow: "down",
                   rules: [
-                    { keyexpr: "test/downsamples_by_keyexp/r100", freq: 10, },
-                    { keyexpr: "test/downsamples_by_keyexp/r50", freq: 20, }
+                    { key_expr: "test/downsamples_by_keyexp/r100", freq: 10, },
+                    { key_expr: "test/downsamples_by_keyexp/r50", freq: 20, }
                   ],
                 },
               ]
@@ -275,4 +277,135 @@ fn downsampling_config_error_wrong_strategy() {
         .unwrap();
 
     zenoh::open(config).wait().unwrap();
+}
+
+#[test]
+fn downsampling_dynamic_config_change() {
+    zenoh::init_log_from_env_or("error");
+
+    let ke_prefix = "test/downsampling_dynamic_config_change";
+    let locator = "tcp/127.0.0.1:31448";
+
+    let ke_10hz: KeyExpr = format!("{ke_prefix}/10hz").try_into().unwrap();
+    let ke_no_effect: KeyExpr = format!("{ke_prefix}/no_effect").try_into().unwrap();
+    let ke_of_rates: Vec<KeyExpr<'static>> = vec![ke_10hz.clone(), ke_no_effect.clone()];
+
+    let cfg_enabled_in = format!(
+        r#"
+              [
+                {{
+                  flow: "ingress",
+                  rules: [
+                    {{ key_expr: "{}", freq: 10, }},
+                    {{ key_expr: "{}", freq: 10000000, }}
+                  ],
+                }},
+              ]
+            "#,
+        ke_10hz.as_str(),
+        ke_no_effect.as_str()
+    );
+
+    let cfg_enabled_out = format!(
+        r#"
+              [
+                {{
+                  flow: "egress",
+                  rules: [
+                    {{ key_expr: "{}", freq: 10, }},
+                    {{ key_expr: "{}", freq: 10000000, }}
+                  ],
+                }},
+              ]
+            "#,
+        ke_10hz.as_str(),
+        ke_no_effect.as_str()
+    );
+
+    let cfg_disables = "[]";
+
+    let rate_check_enabled = move |ke: KeyExpr, rate: usize| -> bool {
+        tracing::info!("keyexpr: {ke}, rate: {rate}");
+        if ke == ke_10hz {
+            rate > 0 && rate <= 10 + 1
+        } else if ke == ke_no_effect {
+            rate > 10
+        } else {
+            tracing::error!("Shouldn't reach this case. Invalid keyexpr {ke} detected.");
+            false
+        }
+    };
+
+    let rate_check_disabled = move |ke: KeyExpr, rate: usize| -> bool {
+        tracing::info!("keyexpr: {ke}, rate: {rate}");
+        rate > 10
+    };
+
+    let (pub_config, mut sub_config) = build_config(locator, vec![], InterceptorFlow::Ingress);
+
+    // sub_config.insert_json5("downsampling", cfg_enabled_in.as_str());
+
+    let pub_session = Arc::new(zenoh::open(pub_config).wait().unwrap());
+    let sub_session = Arc::new(zenoh::open(sub_config).wait().unwrap());
+
+    std::thread::sleep(std::time::Duration::from_secs(5));
+
+    // enable in and check
+    sub_session
+        .config()
+        .insert_json5("downsampling", cfg_enabled_in.as_str())
+        .unwrap();
+
+    std::thread::sleep(std::time::Duration::from_secs(5));
+
+    downsampling_test(
+        pub_session.clone(),
+        sub_session.clone(),
+        ke_prefix,
+        ke_of_rates.clone(),
+        rate_check_enabled.clone(),
+    );
+    /*
+        // disable and check
+        sub_session
+            .config()
+            .insert_json5("downsampling", cfg_disables)
+            .unwrap();
+
+        downsampling_test(
+            pub_session.clone(),
+            sub_session.clone(),
+            ke_prefix,
+            ke_of_rates.clone(),
+            rate_check_disabled,
+        );
+
+        // enable out and check
+        pub_session
+            .config()
+            .insert_json5("downsampling", cfg_enabled_out.as_str())
+            .unwrap();
+
+        downsampling_test(
+            pub_session.clone(),
+            sub_session.clone(),
+            ke_prefix,
+            ke_of_rates.clone(),
+            rate_check_enabled.clone(),
+        );
+
+        // disable and check
+        pub_session
+            .config()
+            .insert_json5("downsampling", cfg_disables)
+            .unwrap();
+
+        downsampling_test(
+            pub_session,
+            sub_session,
+            ke_prefix,
+            ke_of_rates,
+            rate_check_disabled,
+        );
+    */
 }

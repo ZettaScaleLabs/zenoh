@@ -219,10 +219,14 @@ impl RuntimeBuilder {
                         res = stream.next() => {
                             match res {
                                 Some(event) => {
+                                    tracing::trace!("!!!!!!!!!!!!!!!!!!!!!! event {event}");
                                     if &*event == "connect/endpoints" {
                                         if let Err(e) = runtime2.update_peers().await {
                                             tracing::error!("Error updating peers: {}", e);
                                         }
+                                    }
+                                    else if &*event == "downsampling" {
+                                        runtime2.router().tables.tables.read().ok().unwrap().regen_interceptors();
                                     }
                                 },
                                 None => { break; }

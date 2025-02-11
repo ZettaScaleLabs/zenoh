@@ -78,6 +78,7 @@ impl Router {
         let zid = tables.zid;
         let fid = tables.face_counter;
         tables.face_counter += 1;
+        tracing::trace!("!!!!!!!!!!!!!!!!!!!!!! new_primitives");
         let newface = tables
             .faces
             .entry(fid)
@@ -137,6 +138,7 @@ impl Router {
             InterceptorsChain::from(egress.into_iter().flatten().collect::<Vec<_>>()),
         );
         let mux = Arc::new(Mux::new(transport.clone(), Arc::new(egress)));
+        tracing::trace!("!!!!!!!!!!!!!!!!!!!!!! new_transport_unicast");
         let newface = tables
             .faces
             .entry(fid)
