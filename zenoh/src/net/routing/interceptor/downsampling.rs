@@ -139,6 +139,7 @@ impl InterceptorTrait for DownsamplingInterceptor {
         ctx: RoutingContext<NetworkMessage>,
         cache: Option<&Box<dyn Any + Send + Sync>>,
     ) -> Option<RoutingContext<NetworkMessage>> {
+        tracing::debug!("!!!!!!!!!!! intercept");
         if matches!(ctx.msg.body, NetworkBody::Push(_)) {
             if let Some(cache) = cache {
                 if let Some(id) = cache.downcast_ref::<Option<usize>>() {

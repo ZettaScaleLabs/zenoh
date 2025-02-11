@@ -226,7 +226,8 @@ impl RuntimeBuilder {
                                         }
                                     }
                                     else if &*event == "downsampling" {
-                                        runtime2.router().tables.tables.read().ok().unwrap().regen_interceptors();
+                                        let cfg = config.lock();
+                                        runtime2.router().tables.tables.write().ok().unwrap().regen_interceptors(&cfg);
                                     }
                                 },
                                 None => { break; }

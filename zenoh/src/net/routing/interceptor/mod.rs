@@ -66,6 +66,7 @@ pub(crate) fn interceptor_factories(config: &Config) -> ZResult<Vec<InterceptorF
     // res.push(Box::new(LoggerInterceptor {}));
     res.extend(downsampling_interceptor_factories(config.downsampling())?);
     res.extend(acl_interceptor_factories(config.access_control())?);
+    tracing::trace!("!!!!!!!!!!!!!!!!!!!!!! interceptor_factories: {}", res.len());
     Ok(res)
 }
 
