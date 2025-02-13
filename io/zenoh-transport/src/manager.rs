@@ -113,7 +113,6 @@ pub struct TransportManagerConfig {
     pub queue_size: [usize; Priority::NUM],
     pub queue_backoff: Duration,
     pub defrag_buff_size: usize,
-    pub link_rx_buffer_size: usize,
     pub unicast: TransportManagerConfigUnicast,
     pub multicast: TransportManagerConfigMulticast,
     pub endpoints: HashMap<String, String>, // (protocol, config)
@@ -144,7 +143,6 @@ pub struct TransportManagerBuilder {
     wait_before_close: Duration,
     queue_size: QueueSizeConf,
     defrag_buff_size: usize,
-    link_rx_buffer_size: usize,
     unicast: TransportManagerBuilderUnicast,
     multicast: TransportManagerBuilderMulticast,
     endpoints: HashMap<String, String>, // (protocol, config)
@@ -211,11 +209,6 @@ impl TransportManagerBuilder {
         self
     }
 
-    pub fn link_rx_buffer_size(mut self, link_rx_buffer_size: usize) -> Self {
-        self.link_rx_buffer_size = link_rx_buffer_size;
-        self
-    }
-
     pub fn endpoints(mut self, endpoints: HashMap<String, String>) -> Self {
         self.endpoints = endpoints;
         self
@@ -259,7 +252,6 @@ impl TransportManagerBuilder {
             *link.tx().queue().batching().time_limit(),
         ));
         self = self.defrag_buff_size(*link.rx().max_message_size());
-        self = self.link_rx_buffer_size(*link.rx().buffer_size());
         self = self.wait_before_drop((
             duration_from_i64us(*cc_drop.wait_before_drop()),
             duration_from_i64us(*cc_drop.max_wait_before_drop_fragments()),
@@ -327,7 +319,6 @@ impl TransportManagerBuilder {
             queue_size,
             queue_backoff: self.batching_time_limit,
             defrag_buff_size: self.defrag_buff_size,
-            link_rx_buffer_size: self.link_rx_buffer_size,
             unicast: unicast.config,
             multicast: multicast.config,
             endpoints: self.endpoints,
@@ -379,7 +370,6 @@ impl Default for TransportManagerBuilder {
             queue_size: queue.size,
             batching_time_limit: Duration::from_millis(backoff),
             defrag_buff_size: *link_rx.max_message_size(),
-            link_rx_buffer_size: *link_rx.buffer_size(),
             endpoints: HashMap::new(),
             unicast: TransportManagerBuilderUnicast::default(),
             multicast: TransportManagerBuilderMulticast::default(),
