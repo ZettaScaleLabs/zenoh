@@ -283,7 +283,7 @@ async fn rx_task(
 
                     transport.stats.inc_rx_bytes(2 + batch.len()); // Account for the batch len encoding (16 bits)
                 }
-                transport.read_messages(batch, &l)?;
+                tokio::task::block_in_place(|| { transport.read_messages(batch, &l) })?;
             }
 
             _ = token.cancelled() => break

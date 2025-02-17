@@ -16,10 +16,17 @@ use std::time::{Duration, Instant};
 use clap::Parser;
 use zenoh::{bytes::ZBytes, key_expr::keyexpr, qos::CongestionControl, Config, Wait};
 use zenoh_examples::CommonArgs;
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, FmtSubscriber};
+use console_subscriber::{self, ConsoleLayer};
 
 fn main() {
+    tracing_subscriber::registry()
+        .with(fmt::layer())           // Keep existing logs
+        .with(console_subscriber::spawn()) // Enable async task tracing
+        .init();                      // Initialize without overriding
+
     // initiate logging
-    zenoh::init_log_from_env_or("error");
+    //zenoh::init_log_from_env_or("error");
 
     let (config, warmup, size, n, express) = parse_args();
     let session = zenoh::open(config).wait().unwrap();
@@ -49,6 +56,7 @@ fn main() {
     println!("Warming up for {warmup:?}...");
     let now = Instant::now();
     while now.elapsed() < warmup {
+        std::thread::sleep(Duration::from_millis(10));
         let data = data.clone();
         publisher.put(data).wait().unwrap();
 
@@ -56,6 +64,8 @@ fn main() {
     }
 
     for _ in 0..n {
+        std::thread::sleep(Duration::from_millis(10));
+
         let data = data.clone();
         let write_time = Instant::now();
         publisher.put(data).wait().unwrap();

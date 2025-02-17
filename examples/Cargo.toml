@@ -42,6 +42,9 @@ zenoh-ext = { workspace = true, default-features = false, features = ["unstable"
 
 [dev-dependencies]
 rand = { workspace = true, features = ["default"] }
+console-subscriber = { workspace = true}
+tracing = { workspace = true}
+tracing-subscriber = { workspace = true}
 
 [build-dependencies]
 prost-build = "0.13"
