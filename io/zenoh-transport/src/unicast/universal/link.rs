@@ -155,6 +155,13 @@ impl TransportLinkUnicastUniversal {
         };
         // WARN: If this is on ZRuntime::TX, a deadlock would occur.
         self.tracker.spawn_on(task, &zenoh_runtime::ZRuntime::RX);
+
+        //let warm_task = async {
+        //    loop {
+        //        tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
+        //    }
+        //};
+        //self.tracker.spawn_on(warm_task, &zenoh_runtime::ZRuntime::RX);
     }
 
     pub(super) async fn close(self) -> ZResult<()> {
@@ -283,7 +290,8 @@ async fn rx_task(
 
                     transport.stats.inc_rx_bytes(2 + batch.len()); // Account for the batch len encoding (16 bits)
                 }
-                tokio::task::block_in_place(|| { transport.read_messages(batch, &l) })?;
+                transport.read_messages(batch, &l)?;
+                //tokio::task::block_in_place(|| { transport.read_messages(batch, &l) })?;
             }
 
             _ = token.cancelled() => break
