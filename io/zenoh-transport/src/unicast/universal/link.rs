@@ -119,7 +119,7 @@ impl TransportLinkUnicastUniversal {
         let priorities = self.link.config.priorities.clone();
         let reliability = self.link.config.reliability;
         let mut rx = self.link.rx();
-        let token = self.token.clone();
+        let token = self.token.clone();        
         let task = async move {
             // Start the consume task
             let res = rx_task(
@@ -155,13 +155,6 @@ impl TransportLinkUnicastUniversal {
         };
         // WARN: If this is on ZRuntime::TX, a deadlock would occur.
         self.tracker.spawn_on(task, &zenoh_runtime::ZRuntime::RX);
-
-        //let warm_task = async {
-        //    loop {
-        //        tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
-        //    }
-        //};
-        //self.tracker.spawn_on(warm_task, &zenoh_runtime::ZRuntime::RX);
     }
 
     pub(super) async fn close(self) -> ZResult<()> {
@@ -188,6 +181,8 @@ async fn tx_task(
 ) -> ZResult<()> {
     loop {
         tokio::select! {
+            //_ = tokio::task::yield_now() => {}
+            _ = tokio::time::sleep(tokio::time::Duration::from_micros(100)) => {}
             res = tokio::time::timeout(keep_alive, pipeline.pull()) => {
                 match res {
                     Ok(Some((mut batch, priority))) => {
@@ -283,6 +278,8 @@ async fn rx_task(
 
     loop {
         tokio::select! {
+            //_ = tokio::task::yield_now() => {}
+            _ = tokio::time::sleep(tokio::time::Duration::from_micros(100)) => {}
             batch = tokio::time::timeout(lease, read(link, &pool)) => {
                 let batch = batch.map_err(|_| zerror!("{}: expired after {} milliseconds", link, lease.as_millis()))??;
                 #[cfg(feature = "stats")]
