@@ -66,7 +66,7 @@ impl Default for RuntimeParam {
 
 impl RuntimeParam {
     pub fn build(&self, zrt: ZRuntime) -> Result<Runtime> {
-        let rt = tokio::runtime::Builder::new_multi_thread()
+        let rt = tokio::runtime::Builder::new_multi_thread_alt()
             .worker_threads(self.worker_threads)
             .max_blocking_threads(self.max_blocking_threads)
             .enable_io()
