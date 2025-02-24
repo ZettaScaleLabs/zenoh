@@ -119,7 +119,7 @@ impl TransportLinkUnicastUniversal {
         let priorities = self.link.config.priorities.clone();
         let reliability = self.link.config.reliability;
         let mut rx = self.link.rx();
-        let token = self.token.clone();        
+        let token = self.token.clone();
         let task = async move {
             // Start the consume task
             let res = rx_task(
@@ -179,10 +179,11 @@ async fn tx_task(
     token: CancellationToken,
     #[cfg(feature = "stats")] stats: Arc<TransportStats>,
 ) -> ZResult<()> {
+    
     loop {
         tokio::select! {
             //_ = tokio::task::yield_now() => {}
-            _ = tokio::time::sleep(tokio::time::Duration::from_micros(100)) => {}
+            //_ = async { loop { tokio::time::sleep(tokio::time::Duration::from_micros(100)).await } } => {}
             res = tokio::time::timeout(keep_alive, pipeline.pull()) => {
                 match res {
                     Ok(Some((mut batch, priority))) => {
@@ -221,6 +222,53 @@ async fn tx_task(
             _ = token.cancelled() => break
         }
     }
+
+    /*
+    tokio::select! {
+        //_ = tokio::task::yield_now() => {}
+        //_ = async { loop { tokio::time::sleep(tokio::time::Duration::from_micros(100)).await } } => {}
+        res = async {
+            loop {
+                let res = tokio::time::timeout(keep_alive, pipeline.pull()).await;
+                match res {
+                    Ok(Some((mut batch, priority))) => {
+                        link.send_batch(&mut batch).await?;
+
+                        #[cfg(feature = "stats")]
+                        {
+                            stats.inc_tx_t_msgs(batch.stats.t_msgs);
+                            stats.inc_tx_bytes(batch.len() as usize);
+                        }
+
+                        // Reinsert the batch into the queue
+                        pipeline.refill(batch, priority);
+                    },
+                    Ok(None) => {
+                        // The queue has been disabled: break the tx loop, drain the queue, and exit
+                        break;
+                    },
+                    Err(_) => {
+                        // A timeout occurred, no control/data messages have been sent during
+                        // the keep_alive period, we need to send a KeepAlive message
+                        let message: TransportMessage = KeepAlive.into();
+
+                        #[allow(unused_variables)] // Used when stats feature is enabled
+                        let n = link.send(&message).await?;
+
+                        #[cfg(feature = "stats")]
+                        {
+                            stats.inc_tx_t_msgs(1);
+                            stats.inc_tx_bytes(n);
+                        }
+                    }
+                };
+            }
+            ZResult::<()>::Ok(())
+        } => { res?; },
+
+        _ = token.cancelled() => {}
+    }
+     */
 
     // Drain the transmission pipeline and write remaining bytes on the wire
     let mut batches = pipeline.drain();
@@ -276,23 +324,21 @@ async fn rx_task(
         link.config.reliability,
     );
 
-    loop {
-        tokio::select! {
-            //_ = tokio::task::yield_now() => {}
-            _ = tokio::time::sleep(tokio::time::Duration::from_micros(100)) => {}
-            batch = tokio::time::timeout(lease, read(link, &pool)) => {
-                let batch = batch.map_err(|_| zerror!("{}: expired after {} milliseconds", link, lease.as_millis()))??;
-                #[cfg(feature = "stats")]
-                {
-
-                    transport.stats.inc_rx_bytes(2 + batch.len()); // Account for the batch len encoding (16 bits)
-                }
-                transport.read_messages(batch, &l)?;
-                //tokio::task::block_in_place(|| { transport.read_messages(batch, &l) })?;
+    tokio::select! {
+        //_ = tokio::task::yield_now() => {}
+        //_ = async { loop { tokio::time::sleep(tokio::time::Duration::from_micros(100)).await } } => {}
+        val = async { loop {
+            let batch = tokio::time::timeout(lease, read(link, &pool)).await;
+            let batch = batch.map_err(|_| zerror!("{}: expired after {} milliseconds", link, lease.as_millis()))??;
+            #[cfg(feature = "stats")]
+            {
+                transport.stats.inc_rx_bytes(2 + batch.len()); // Account for the batch len encoding (16 bits)
             }
+            transport.read_messages(batch, &l)?;
+            //tokio::task::block_in_place(|| { transport.read_messages(batch, &l) })?;
+        } } => { return val; }
 
-            _ = token.cancelled() => break
-        }
+        _ = token.cancelled() => {}
     }
 
     Ok(())
