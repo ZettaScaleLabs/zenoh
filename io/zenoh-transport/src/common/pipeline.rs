@@ -216,6 +216,7 @@ struct StageIn {
     batch_pool: Arc<BatchPool>,
     refill_waiter: Waiter,
     use_small_batch: bool,
+    current_notified: bool,
     fragbuf: ZBuf,
     batching: bool,
     batch_config: BatchConfig,
@@ -245,6 +246,7 @@ impl StageIn {
         if let Some(batch) = current.take() {
             return Ok(Some(batch));
         }
+        self.current_notified = false;
         loop {
             // try to acquire an available batch
             if let Some(batch) =
@@ -296,11 +298,16 @@ impl StageIn {
         if batch.len() <= Self::SMALL_BATCH_SIZE {
             self.use_small_batch = true;
         }
-        if !self.batching || force || !self.batch_pool.is_batching() {
+        if !self.batching || force {
             drop(current);
             self.push_batch(batch);
         } else {
             *current = Some(batch);
+            drop(current);
+            if !self.current_notified && !self.batch_pool.is_batching() {
+                self.current_notified = true;
+                let _ = self.push_notifier.notify();
+            }
         }
     }
 
@@ -484,22 +491,26 @@ impl StageOut {
             self.backoff = None;
             return Ok(Some(batch));
         }
-        if self.batch_pool.is_batching() {
-            match self.backoff {
-                Some(backoff) if Instant::now() > backoff => {
-                    if let Ok(mut current) = self.current.try_lock() {
-                        self.backoff = None;
-                        return Ok(current.take());
-                    }
-                    self.batch_pool.stop_batching();
-                    self.backoff = Some(Instant::now() + Duration::from_millis(1));
-                }
-                Some(_) => {}
-                None => self.backoff = Some(Instant::now() + self.batching_time_limit),
+        match self.backoff {
+            Some(backoff) if Instant::now() > backoff => {
+                self.batch_pool.stop_batching();
             }
-            return Err(self.backoff.unwrap());
+            Some(backoff) => return Err(backoff),
+            None if self.batch_pool.is_batching() => {
+                self.backoff = Some(Instant::now() + self.batching_time_limit);
+                return Err(self.backoff.unwrap());
+            }
+            None => {}
         }
-        Ok(None)
+        let Ok(mut current) = self.current.try_lock() else {
+            self.backoff = Some(Instant::now() + self.batching_time_limit);
+            return Err(self.backoff.unwrap());
+        };
+        self.backoff = None;
+        if let Some(batch) = self.batch_rx.pull() {
+            return Ok(Some(batch));
+        }
+        Ok(current.take())
     }
 
     fn drain(&mut self) -> Vec<WBatch> {
@@ -563,6 +574,7 @@ impl TransmissionPipeline {
                     batch_pool: batch_pool.clone(),
                     refill_waiter,
                     use_small_batch: true,
+                    current_notified: false,
                     fragbuf: ZBuf::empty(),
                     batching: config.batching_enabled,
                     batch_config: config.batch,
