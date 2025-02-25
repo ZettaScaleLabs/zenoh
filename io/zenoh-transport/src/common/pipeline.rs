@@ -63,6 +63,7 @@ impl fmt::Display for TransportClosed {
 impl std::error::Error for TransportClosed {}
 
 struct BatchPool {
+    count: u8,
     state: AtomicU8,
     refill: UnsafeCell<MaybeUninit<WBatch>>,
 }
@@ -71,7 +72,7 @@ unsafe impl Send for BatchPool {}
 unsafe impl Sync for BatchPool {}
 
 impl BatchPool {
-    const CAPACITY_MASK: u8 = (1 << 5) - 1;
+    const COUNT_MASK: u8 = (1 << 5) - 1;
     const REFILL_FLAG: u8 = 1 << 5;
     const BATCHING_FLAG: u8 = 1 << 6;
     const CONGESTED_FLAG: u8 = 1 << 7;
@@ -82,6 +83,7 @@ impl BatchPool {
             ..batch_config
         });
         Self {
+            count: count as u8,
             state: AtomicU8::new(count as u8 | Self::REFILL_FLAG),
             refill: UnsafeCell::new(MaybeUninit::new(batch)),
         }
@@ -91,7 +93,7 @@ impl BatchPool {
         let mut state = self.state.load(Ordering::Acquire);
         let mut batch = None;
         loop {
-            while state & Self::CAPACITY_MASK == 0 {
+            while state & Self::COUNT_MASK == 0 {
                 if !set_congested {
                     return None;
                 }
@@ -106,13 +108,14 @@ impl BatchPool {
                 }
             }
             let mut next_state = state - 1;
+            if state & Self::COUNT_MASK < self.count {
+                next_state |= Self::BATCHING_FLAG;
+            }
             if state & Self::REFILL_FLAG != 0 {
                 if batch.is_none() {
                     batch = Some(unsafe { (*self.refill.get()).assume_init_read() });
                 }
-                next_state &= !Self::REFILL_FLAG & !Self::BATCHING_FLAG;
-            } else {
-                next_state |= Self::BATCHING_FLAG;
+                next_state &= !Self::REFILL_FLAG;
             }
             match self.state.compare_exchange_weak(
                 state,
@@ -136,6 +139,9 @@ impl BatchPool {
         let mut state = self.state.load(Ordering::Relaxed);
         loop {
             let mut next_state = state + 1 & !Self::CONGESTED_FLAG;
+            if state + 1 & Self::COUNT_MASK == self.count {
+                next_state &= !Self::BATCHING_FLAG;
+            }
             if state & Self::REFILL_FLAG == 0 {
                 if let Some(batch) = batch.take() {
                     unsafe { (*self.refill.get()).write(batch) };
@@ -503,7 +509,8 @@ impl StageOut {
             None => {}
         }
         let Ok(mut current) = self.current.try_lock() else {
-            self.backoff = Some(Instant::now() + self.batching_time_limit);
+            self.backoff
+                .get_or_insert(Instant::now() + self.batching_time_limit);
             return Err(self.backoff.unwrap());
         };
         self.backoff = None;
