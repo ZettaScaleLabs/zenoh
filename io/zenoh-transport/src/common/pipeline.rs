@@ -12,10 +12,12 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 use std::{
+    cell::UnsafeCell,
     cmp::min,
     fmt, mem,
+    mem::MaybeUninit,
     sync::{
-        atomic::{AtomicI8, Ordering},
+        atomic::{AtomicU8, Ordering},
         Arc, Mutex, MutexGuard,
     },
     time::{Duration, Instant},
@@ -60,57 +62,109 @@ impl fmt::Display for TransportClosed {
 }
 impl std::error::Error for TransportClosed {}
 
-/// Count of available batches for a pipeline.
-///
-/// When no batch is available, a "congested" flag can be set and checked later
-/// to shortcut the pipeline.
-///
-/// # Implementation
-///
-/// The counter is an atomic integer, initialized with the batch count. It is decremented
-/// when batches are acquired, and incremented when they are released. If the count is zero,
-/// meaning no batch is available, it can be updated to -1, meaning that the pipeline is
-/// congested.
-struct AvailableBatches(AtomicI8);
+struct BatchPool {
+    state: AtomicU8,
+    refill: UnsafeCell<MaybeUninit<WBatch>>,
+}
 
-impl AvailableBatches {
-    /// Initializes the count of available batch.
-    fn new(count: usize) -> Self {
-        Self(AtomicI8::new(count as i8))
-    }
+unsafe impl Send for BatchPool {}
+unsafe impl Sync for BatchPool {}
 
-    /// Tries to acquire a batch, returns if there is one available.
-    ///
-    /// If no batch is available and `set_congested` is `true`, then
-    /// the congested flag will be set.
-    fn try_acquire(&self, set_congested: bool) -> bool {
-        if set_congested {
-            // Try to acquire a batch; if count was zero, it is set to -1,
-            // resulting in the congested flag set.
-            self.0.fetch_sub(1, Ordering::Relaxed) > 0
-        } else if self.0.load(Ordering::Relaxed) > 0 {
-            // No need of a compare-and-swap operation to decrease the count
-            // only if it's positive, as there should only be a single acquirer.
-            self.0.fetch_sub(1, Ordering::Relaxed);
-            return true;
-        } else {
-            false
+impl BatchPool {
+    const CAPACITY_MASK: u8 = (1 << 5) - 1;
+    const REFILL_FLAG: u8 = 1 << 5;
+    const BATCHING_FLAG: u8 = 1 << 6;
+    const CONGESTED_FLAG: u8 = 1 << 7;
+
+    fn new(count: usize, batch_config: BatchConfig) -> Self {
+        let batch = WBatch::new(BatchConfig {
+            mtu: 0,
+            ..batch_config
+        });
+        Self {
+            state: AtomicU8::new(count as u8 | Self::REFILL_FLAG),
+            refill: UnsafeCell::new(MaybeUninit::new(batch)),
         }
     }
 
-    /// Returns if the congested flag has been set, meaning no batch is available.
-    /// The congested flag should usually be set after waiting a bit.
+    unsafe fn try_acquire(&self, batch_config: BatchConfig, set_congested: bool) -> Option<WBatch> {
+        let mut state = self.state.load(Ordering::Acquire);
+        let mut batch = None;
+        loop {
+            while state & Self::CAPACITY_MASK == 0 {
+                if !set_congested {
+                    return None;
+                }
+                match self.state.compare_exchange_weak(
+                    state,
+                    state | Self::CONGESTED_FLAG,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => return None,
+                    Err(s) => state = s,
+                }
+            }
+            let mut next_state = state - 1;
+            if state & Self::REFILL_FLAG != 0 {
+                if batch.is_none() {
+                    batch = Some(unsafe { (*self.refill.get()).assume_init_read() });
+                }
+                next_state &= !Self::REFILL_FLAG & !Self::BATCHING_FLAG;
+            } else {
+                next_state |= Self::BATCHING_FLAG;
+            }
+            match self.state.compare_exchange_weak(
+                state,
+                next_state,
+                Ordering::Relaxed,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => break,
+                Err(s) => state = s,
+            }
+        }
+        Some(match batch {
+            Some(b) if b.buffer.capacity() >= batch_config.mtu as usize => b,
+            _ => WBatch::new(batch_config),
+        })
+    }
+
+    unsafe fn release(&self, mut batch: WBatch) {
+        batch.clear();
+        let mut batch = Some(batch);
+        let mut state = self.state.load(Ordering::Relaxed);
+        loop {
+            let mut next_state = state + 1 & !Self::CONGESTED_FLAG;
+            if state & Self::REFILL_FLAG == 0 {
+                if let Some(batch) = batch.take() {
+                    unsafe { (*self.refill.get()).write(batch) };
+                }
+                next_state |= Self::REFILL_FLAG;
+            }
+            match self.state.compare_exchange_weak(
+                state,
+                next_state,
+                Ordering::Release,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(s) => state = s,
+            }
+        }
+    }
+
     fn is_congested(&self) -> bool {
-        self.0.load(Ordering::Relaxed) == -1
+        self.state.load(Ordering::Relaxed) & Self::CONGESTED_FLAG != 0
     }
 
-    /// Releases a batch, making it available.
-    /// If the
-    fn release(&self) {
-        // If the pipeline was congested, increment the count a second time
-        if self.0.fetch_add(1, Ordering::Relaxed) == -1 {
-            self.0.fetch_add(1, Ordering::Relaxed);
-        }
+    fn is_batching(&self) -> bool {
+        self.state.fetch_add(0, Ordering::Relaxed) & Self::BATCHING_FLAG != 0
+    }
+
+    fn stop_batching(&self) {
+        self.state
+            .fetch_and(!Self::BATCHING_FLAG, Ordering::Relaxed);
     }
 }
 
@@ -152,17 +206,16 @@ struct StageInShared {
     queue: Mutex<StageIn>,
     current: Arc<Mutex<Option<WBatch>>>,
     chan_tx: TransportPriorityTx,
-    available: Arc<AvailableBatches>,
+    batch_pool: Arc<BatchPool>,
 }
 
 // This is the initial stage of the pipeline where messages are serialized on
 struct StageIn {
     batch_tx: RingBufferWriter<WBatch, RBLEN>,
-    batch_notifier: Notifier,
-    available: Arc<AvailableBatches>,
-    available_waiter: Waiter,
+    push_notifier: Notifier,
+    batch_pool: Arc<BatchPool>,
+    refill_waiter: Waiter,
     use_small_batch: bool,
-    current_reused: bool,
     fragbuf: ZBuf,
     batching: bool,
     batch_config: BatchConfig,
@@ -171,13 +224,15 @@ struct StageIn {
 impl StageIn {
     const SMALL_BATCH_SIZE: BatchSize = 1 << 11;
 
-    /// Allocate a new batch, using small batch size when appropriate.
-    fn new_batch(&self) -> WBatch {
-        let mut batch_config = self.batch_config;
-        if self.use_small_batch {
-            batch_config.mtu = min(self.batch_config.mtu, Self::SMALL_BATCH_SIZE);
+    fn new_batch_config(&self) -> BatchConfig {
+        BatchConfig {
+            mtu: if self.use_small_batch {
+                min(self.batch_config.mtu, Self::SMALL_BATCH_SIZE)
+            } else {
+                self.batch_config.mtu
+            },
+            ..self.batch_config
         }
-        WBatch::new(batch_config)
     }
 
     /// Retrieve the current batch, or allocate a new one if there is a slot available.
@@ -188,24 +243,27 @@ impl StageIn {
     ) -> Result<Option<WBatch>, TransportClosed> {
         // retrieve current batch if any
         if let Some(batch) = current.take() {
-            self.current_reused = true;
             return Ok(Some(batch));
         }
-        self.current_reused = false;
         loop {
             // try to acquire an available batch
-            if self.available.try_acquire(false) {
-                return Ok(Some(self.new_batch()));
+            if let Some(batch) =
+                unsafe { self.batch_pool.try_acquire(self.new_batch_config(), false) }
+            {
+                return Ok(Some(batch));
             }
             // otherwise, wait until one is available
+            if self.batch_pool.is_congested() {
+                return Ok(None);
+            }
             match deadline.as_mut().map(|d| d.get_expiration()) {
-                Some(Some(deadline)) => match self.available_waiter.wait_deadline(deadline) {
+                Some(Some(deadline)) => match self.refill_waiter.wait_deadline(deadline) {
                     Ok(..) => continue,
                     Err(WaitDeadlineError::Deadline) => break,
                     Err(WaitDeadlineError::WaitError) => return Err(TransportClosed),
                 },
                 Some(None) => break,
-                None => match self.available_waiter.wait() {
+                None => match self.refill_waiter.wait() {
                     Ok(..) => continue,
                     Err(WaitError) => return Err(TransportClosed),
                 },
@@ -213,15 +271,15 @@ impl StageIn {
         }
         // the deadline has been exceeded, try a last time, setting the congested flag
         // if there is still no batch
-        if self.available.try_acquire(true) {
-            return Ok(Some(self.new_batch()));
+        if let Some(batch) = unsafe { self.batch_pool.try_acquire(self.new_batch_config(), true) } {
+            return Ok(Some(batch));
         }
         Ok(None)
     }
 
     fn push_batch(&mut self, batch: WBatch) {
         self.batch_tx.push(batch);
-        let _ = self.batch_notifier.notify();
+        let _ = self.push_notifier.notify();
     }
 
     /// Push a batch to the TX task.
@@ -238,14 +296,11 @@ impl StageIn {
         if batch.len() <= Self::SMALL_BATCH_SIZE {
             self.use_small_batch = true;
         }
-        if !self.batching || force {
+        if !self.batching || force || !self.batch_pool.is_batching() {
+            drop(current);
             self.push_batch(batch);
         } else {
             *current = Some(batch);
-            drop(current);
-            if !self.current_reused {
-                let _ = self.batch_notifier.notify();
-            }
         }
     }
 
@@ -296,15 +351,8 @@ impl StageIn {
             return Ok(true);
         }
 
-        // Push the batch if not empty
-        if !batch.is_empty() {
-            self.push_batch(batch);
-        } else {
-            drop(batch);
-            self.available.release();
-        }
-
         // Attempt a second serialization on fully empty batch (do not use small batch)
+        self.push_batch(batch);
         self.use_small_batch = false;
         match self.get_batch(&mut current, Some(deadline))? {
             Some(b) => batch = b,
@@ -350,7 +398,7 @@ impl StageIn {
                     // Otherwise, an ephemeral batch is created to send the stop fragment
                     } else {
                         self.use_small_batch = true;
-                        let mut batch = self.new_batch();
+                        let mut batch = WBatch::new(self.new_batch_config());
                         fragment.ext_drop = Some(fragment::ext::Drop::new());
                         let _ = batch.encode((&mut self.fragbuf.reader(), &mut fragment));
                         self.push_batch(batch);
@@ -416,7 +464,7 @@ impl StageIn {
             self.push_or_reinsert_batch(current, batch, true);
             return Ok(true);
         }
-        self.available.release();
+        *current = Some(batch);
         Ok(false)
     }
 }
@@ -424,24 +472,34 @@ impl StageIn {
 struct StageOut {
     batch_rx: RingBufferReader<WBatch, RBLEN>,
     current: Arc<Mutex<Option<WBatch>>>,
-    available: Arc<AvailableBatches>,
-    available_notifier: Notifier,
+    batch_pool: Arc<BatchPool>,
+    refill_notifier: Notifier,
+    backoff: Option<Instant>,
     batching_time_limit: Duration,
 }
 
 impl StageOut {
     fn pull(&mut self) -> Result<Option<WBatch>, Instant> {
         if let Some(batch) = self.batch_rx.pull() {
+            self.backoff = None;
             return Ok(Some(batch));
         }
-        let Ok(mut current) = self.current.try_lock() else {
-            return Err(Instant::now() + self.batching_time_limit);
-        };
-        // try pull a second time with the lock hold to not miss any message push in between
-        if let Some(batch) = self.batch_rx.pull() {
-            return Ok(Some(batch));
+        if self.batch_pool.is_batching() {
+            match self.backoff {
+                Some(backoff) if Instant::now() > backoff => {
+                    if let Ok(mut current) = self.current.try_lock() {
+                        self.backoff = None;
+                        return Ok(current.take());
+                    }
+                    self.batch_pool.stop_batching();
+                    self.backoff = Some(Instant::now() + Duration::from_millis(1));
+                }
+                Some(_) => {}
+                None => self.backoff = Some(Instant::now() + self.batching_time_limit),
+            }
+            return Err(self.backoff.unwrap());
         }
-        Ok(current.take())
+        Ok(None)
     }
 
     fn drain(&mut self) -> Vec<WBatch> {
@@ -487,12 +545,12 @@ impl TransmissionPipeline {
         };
 
         let (disable_notifier, disable_waiter) = event::new();
-        let (batch_notifier, batch_waiter) = event::new();
+        let (push_notifier, push_waiter) = event::new();
 
         for (prio, &num) in size_iter.enumerate() {
             assert!(num != 0 && num <= RBLEN);
-            let available = Arc::new(AvailableBatches::new(num));
-            let (available_notifier, available_waiter) = event::new();
+            let batch_pool = Arc::new(BatchPool::new(num, config.batch));
+            let (refill_notifier, refill_waiter) = event::new();
 
             let (batch_tx, batch_rx) = RingBuffer::<WBatch, RBLEN>::init();
 
@@ -501,26 +559,26 @@ impl TransmissionPipeline {
             stage_in.push(StageInShared {
                 queue: Mutex::new(StageIn {
                     batch_tx,
-                    batch_notifier: batch_notifier.clone(),
-                    available: available.clone(),
-                    available_waiter,
+                    push_notifier: push_notifier.clone(),
+                    batch_pool: batch_pool.clone(),
+                    refill_waiter,
                     use_small_batch: true,
-                    current_reused: false,
                     fragbuf: ZBuf::empty(),
                     batching: config.batching_enabled,
                     batch_config: config.batch,
                 }),
                 current: current.clone(),
                 chan_tx: priority[prio].clone(),
-                available: available.clone(),
+                batch_pool: batch_pool.clone(),
             });
 
             // The stage out for this priority
             stage_out.push(StageOut {
                 batch_rx,
                 current,
-                available,
-                available_notifier,
+                batch_pool,
+                refill_notifier,
+                backoff: None,
                 batching_time_limit: config.batching_time_limit,
             });
         }
@@ -533,7 +591,7 @@ impl TransmissionPipeline {
         };
         let consumer = TransmissionPipelineConsumer {
             stage_out: stage_out.into_boxed_slice(),
-            batch_waiter,
+            push_waiter,
             disable_waiter,
         };
 
@@ -569,7 +627,7 @@ impl TransmissionPipelineProducer {
         // If message is droppable, compute a deadline after which the sample could be dropped
         let (wait_time, max_wait_time) = if msg.is_droppable() {
             // Checked if we are blocked on the priority queue and we drop directly the message
-            if stage_in.available.is_congested() {
+            if stage_in.batch_pool.is_congested() {
                 return Ok(false);
             }
             (self.wait_before_drop.0, Some(self.wait_before_drop.1))
@@ -579,10 +637,6 @@ impl TransmissionPipelineProducer {
         let mut deadline = Deadline::new(wait_time, max_wait_time);
         // Lock the channel. We are the only one that will be writing on it.
         let mut queue = zlock!(stage_in.queue);
-        // Check again for congestion in case it happens when blocking on the mutex.
-        if stage_in.available.is_congested() {
-            return Ok(false);
-        }
         queue.push_network_message(stage_in, &msg, priority, &mut deadline)
     }
 
@@ -612,7 +666,7 @@ impl TransmissionPipelineProducer {
 pub(crate) struct TransmissionPipelineConsumer {
     // A single Mutex for all the priority queues
     stage_out: Box<[StageOut]>,
-    batch_waiter: Waiter,
+    push_waiter: Waiter,
     disable_waiter: Waiter,
 }
 
@@ -634,16 +688,16 @@ impl TransmissionPipelineConsumer {
             tokio::select! {
                 biased;
                 _ = self.disable_waiter.wait_async() => return None,
-                _ = self.batch_waiter.wait_async() => {},
+                _ = self.push_waiter.wait_async() => {},
                 Some(_) = sleep => {}
             }
         }
     }
 
-    pub(crate) fn refill(&mut self, _batch: WBatch, priority: Priority) {
+    pub(crate) fn refill(&mut self, batch: WBatch, priority: Priority) {
         let stage_out = &self.stage_out[priority as usize];
-        stage_out.available.release();
-        let _ = stage_out.available_notifier.notify();
+        unsafe { stage_out.batch_pool.release(batch) };
+        let _ = stage_out.refill_notifier.notify();
     }
 
     pub(crate) fn drain(&mut self) -> Vec<(WBatch, usize)> {
