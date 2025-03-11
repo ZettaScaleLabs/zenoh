@@ -51,7 +51,7 @@ impl TransportPeerEventHandler for DeMux {
     #[inline]
     fn handle_message(&self, mut msg: NetworkMessage) -> ZResult<()> {
         if !self.interceptor.interceptors.is_empty() {
-            let ctx = RoutingContext::new_in(msg, self.face.clone());
+            let mut ctx = RoutingContext::new_in(msg, self.face.clone());
             let prefix = ctx
                 .wire_expr()
                 .and_then(|we| (!we.has_suffix()).then(|| ctx.prefix()))
@@ -61,52 +61,47 @@ impl TransportPeerEventHandler for DeMux {
                 .as_ref()
                 .and_then(|p| p.get_ingress_cache(&self.face));
 
-            let ctx = match &ctx.msg.body {
+            match &ctx.msg.body {
                 NetworkBody::Request(request) => {
                     let request_id = request.id;
-                    match self.interceptor.intercept(ctx, cache) {
-                        Some(ctx) => ctx,
-                        None => {
-                            // request was blocked by an interceptor, we need to send response final to avoid timeout error
-                            self.face
-                                .state
-                                .primitives
-                                .send_response_final(ResponseFinal {
-                                    rid: request_id,
-                                    ext_qos: response::ext::QoSType::RESPONSE_FINAL,
-                                    ext_tstamp: None,
-                                });
-                            return Ok(());
-                        }
+                    if self.interceptor.intercept(&mut ctx, cache) {
+                        // request was blocked by an interceptor, we need to send response final to avoid timeout error
+                        self.face
+                            .state
+                            .primitives
+                            .send_response_final(ResponseFinal {
+                                rid: request_id,
+                                ext_qos: response::ext::QoSType::RESPONSE_FINAL,
+                                ext_tstamp: None,
+                            });
+                        return Ok(());
                     }
                 }
                 NetworkBody::Interest(interest) => {
                     let interest_id = interest.id;
-                    match self.interceptor.intercept(ctx, cache) {
-                        Some(ctx) => ctx,
-                        None => {
-                            // request was blocked by an interceptor, we need to send declare final to avoid timeout error
-                            self.face
-                                .state
-                                .primitives
-                                .send_declare(RoutingContext::new_in(
-                                    Declare {
-                                        interest_id: Some(interest_id),
-                                        ext_qos: ext::QoSType::DECLARE,
-                                        ext_tstamp: None,
-                                        ext_nodeid: ext::NodeIdType::DEFAULT,
-                                        body: DeclareBody::DeclareFinal(DeclareFinal),
-                                    },
-                                    self.face.clone(),
-                                ));
-                            return Ok(());
-                        }
+                    if !self.interceptor.intercept(&mut ctx, cache) {
+                        // request was blocked by an interceptor, we need to send declare final to avoid timeout error
+                        self.face
+                            .state
+                            .primitives
+                            .send_declare(RoutingContext::new_in(
+                                Declare {
+                                    interest_id: Some(interest_id),
+                                    ext_qos: ext::QoSType::DECLARE,
+                                    ext_tstamp: None,
+                                    ext_nodeid: ext::NodeIdType::DEFAULT,
+                                    body: DeclareBody::DeclareFinal(DeclareFinal),
+                                },
+                                self.face.clone(),
+                            ));
+                        return Ok(());
                     }
                 }
-                _ => match self.interceptor.intercept(ctx, cache) {
-                    Some(ctx) => ctx,
-                    None => return Ok(()),
-                },
+                _ => {
+                    if !self.interceptor.intercept(&mut ctx, cache) {
+                        return Ok(());
+                    }
+                }
             };
 
             msg = ctx.msg;

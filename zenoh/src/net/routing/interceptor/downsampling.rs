@@ -198,9 +198,9 @@ impl InterceptorTrait for DownsamplingInterceptor {
 
     fn intercept(
         &self,
-        ctx: RoutingContext<NetworkMessage>,
+        ctx: &mut RoutingContext<NetworkMessage>,
         cache: Option<&Box<dyn Any + Send + Sync>>,
-    ) -> Option<RoutingContext<NetworkMessage>> {
+    ) -> bool {
         if self.is_msg_filtered(&ctx) {
             if let Some(cache) = cache {
                 if let Some(id) = cache.downcast_ref::<Option<usize>>() {
@@ -211,9 +211,9 @@ impl InterceptorTrait for DownsamplingInterceptor {
 
                             if timestamp - state.latest_message_timestamp >= state.threshold {
                                 state.latest_message_timestamp = timestamp;
-                                return Some(ctx);
+                                return true;
                             } else {
-                                return None;
+                                return false;
                             }
                         } else {
                             tracing::debug!("unexpected cache ID {}", id);
@@ -225,7 +225,7 @@ impl InterceptorTrait for DownsamplingInterceptor {
             }
         }
 
-        Some(ctx)
+        true
     }
 }
 

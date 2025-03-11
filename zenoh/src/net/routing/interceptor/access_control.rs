@@ -217,6 +217,15 @@ impl InterceptorFactoryTrait for AclEnforcer {
     }
 }
 
+macro_rules! unwrap_or_return {
+    ($expr:expr) => {
+        match $expr {
+            Some(x) => x,
+            None => return false,
+        }
+    };
+}
+
 impl InterceptorTrait for IngressAclEnforcer {
     fn compute_keyexpr_cache(&self, key_expr: &KeyExpr<'_>) -> Option<Box<dyn Any + Send + Sync>> {
         Some(Box::new(key_expr.to_string()))
@@ -224,9 +233,9 @@ impl InterceptorTrait for IngressAclEnforcer {
 
     fn intercept<'a>(
         &self,
-        ctx: RoutingContext<NetworkMessage>,
+        ctx: &mut RoutingContext<NetworkMessage>,
         cache: Option<&Box<dyn Any + Send + Sync>>,
-    ) -> Option<RoutingContext<NetworkMessage>> {
+    ) -> bool {
         let key_expr = cache
             .and_then(|i| match i.downcast_ref::<String>() {
                 Some(e) => Some(e.as_str()),
@@ -242,33 +251,49 @@ impl InterceptorTrait for IngressAclEnforcer {
                 payload: RequestBody::Query(_),
                 ..
             }) => {
-                if self.action(AclMessage::Query, "Query (ingress)", key_expr?) == Permission::Deny
+                if self.action(
+                    AclMessage::Query,
+                    "Query (ingress)",
+                    unwrap_or_return!(key_expr),
+                ) == Permission::Deny
                 {
-                    return None;
+                    return false;
                 }
             }
             NetworkBody::Response(Response { .. }) => {
-                if self.action(AclMessage::Reply, "Reply (ingress)", key_expr?) == Permission::Deny
+                if self.action(
+                    AclMessage::Reply,
+                    "Reply (ingress)",
+                    unwrap_or_return!(key_expr),
+                ) == Permission::Deny
                 {
-                    return None;
+                    return false;
                 }
             }
             NetworkBody::Push(Push {
                 payload: PushBody::Put(_),
                 ..
             }) => {
-                if self.action(AclMessage::Put, "Put (ingress)", key_expr?) == Permission::Deny {
-                    return None;
+                if self.action(
+                    AclMessage::Put,
+                    "Put (ingress)",
+                    unwrap_or_return!(key_expr),
+                ) == Permission::Deny
+                {
+                    return false;
                 }
             }
             NetworkBody::Push(Push {
                 payload: PushBody::Del(_),
                 ..
             }) => {
-                if self.action(AclMessage::Delete, "Delete (ingress)", key_expr?)
-                    == Permission::Deny
+                if self.action(
+                    AclMessage::Delete,
+                    "Delete (ingress)",
+                    unwrap_or_return!(key_expr),
+                ) == Permission::Deny
                 {
-                    return None;
+                    return false;
                 }
             }
             NetworkBody::Declare(Declare {
@@ -278,10 +303,10 @@ impl InterceptorTrait for IngressAclEnforcer {
                 if self.action(
                     AclMessage::DeclareSubscriber,
                     "Declare Subscriber (ingress)",
-                    key_expr?,
+                    unwrap_or_return!(key_expr),
                 ) == Permission::Deny
                 {
-                    return None;
+                    return false;
                 }
             }
             NetworkBody::Declare(Declare {
@@ -300,7 +325,7 @@ impl InterceptorTrait for IngressAclEnforcer {
                             key_expr,
                         ) == Permission::Deny
                     {
-                        return None;
+                        return false;
                     }
                 }
             }
@@ -311,10 +336,10 @@ impl InterceptorTrait for IngressAclEnforcer {
                 if self.action(
                     AclMessage::DeclareQueryable,
                     "Declare Queryable (ingress)",
-                    key_expr?,
+                    unwrap_or_return!(key_expr),
                 ) == Permission::Deny
                 {
-                    return None;
+                    return false;
                 }
             }
             NetworkBody::Declare(Declare {
@@ -333,7 +358,7 @@ impl InterceptorTrait for IngressAclEnforcer {
                             key_expr,
                         ) == Permission::Deny
                     {
-                        return None;
+                        return false;
                     }
                 }
             }
@@ -344,10 +369,10 @@ impl InterceptorTrait for IngressAclEnforcer {
                 if self.action(
                     AclMessage::LivelinessToken,
                     "Liveliness Token (ingress)",
-                    key_expr?,
+                    unwrap_or_return!(key_expr),
                 ) == Permission::Deny
                 {
-                    return None;
+                    return false;
                 }
             }
 
@@ -367,7 +392,7 @@ impl InterceptorTrait for IngressAclEnforcer {
                             key_expr,
                         ) == Permission::Deny
                     {
-                        return None;
+                        return false;
                     }
                 }
             }
@@ -379,10 +404,10 @@ impl InterceptorTrait for IngressAclEnforcer {
                 if self.action(
                     AclMessage::LivelinessQuery,
                     "Liveliness Query (ingress)",
-                    key_expr?,
+                    unwrap_or_return!(key_expr),
                 ) == Permission::Deny
                 {
-                    return None;
+                    return false;
                 }
             }
             NetworkBody::Interest(Interest {
@@ -393,10 +418,10 @@ impl InterceptorTrait for IngressAclEnforcer {
                 if self.action(
                     AclMessage::DeclareLivelinessSubscriber,
                     "Declare Liveliness Subscriber (ingress)",
-                    key_expr?,
+                    unwrap_or_return!(key_expr),
                 ) == Permission::Deny
                 {
-                    return None;
+                    return false;
                 }
             }
             NetworkBody::Interest(Interest {
@@ -423,7 +448,7 @@ impl InterceptorTrait for IngressAclEnforcer {
             // Unfiltered remaining message types
             NetworkBody::Interest(_) | NetworkBody::OAM(_) | NetworkBody::ResponseFinal(_) => {}
         }
-        Some(ctx)
+        true
     }
 }
 
@@ -434,9 +459,9 @@ impl InterceptorTrait for EgressAclEnforcer {
 
     fn intercept(
         &self,
-        ctx: RoutingContext<NetworkMessage>,
+        ctx: &mut RoutingContext<NetworkMessage>,
         cache: Option<&Box<dyn Any + Send + Sync>>,
-    ) -> Option<RoutingContext<NetworkMessage>> {
+    ) -> bool {
         let key_expr = cache
             .and_then(|i| match i.downcast_ref::<String>() {
                 Some(e) => Some(e.as_str()),
@@ -452,30 +477,46 @@ impl InterceptorTrait for EgressAclEnforcer {
                 payload: RequestBody::Query(_),
                 ..
             }) => {
-                if self.action(AclMessage::Query, "Query (egress)", key_expr?) == Permission::Deny {
-                    return None;
+                if self.action(
+                    AclMessage::Query,
+                    "Query (egress)",
+                    unwrap_or_return!(key_expr),
+                ) == Permission::Deny
+                {
+                    return false;
                 }
             }
             NetworkBody::Response(Response { .. }) => {
-                if self.action(AclMessage::Reply, "Reply (egress)", key_expr?) == Permission::Deny {
-                    return None;
+                if self.action(
+                    AclMessage::Reply,
+                    "Reply (egress)",
+                    unwrap_or_return!(key_expr),
+                ) == Permission::Deny
+                {
+                    return false;
                 }
             }
             NetworkBody::Push(Push {
                 payload: PushBody::Put(_),
                 ..
             }) => {
-                if self.action(AclMessage::Put, "Put (egress)", key_expr?) == Permission::Deny {
-                    return None;
+                if self.action(AclMessage::Put, "Put (egress)", unwrap_or_return!(key_expr))
+                    == Permission::Deny
+                {
+                    return false;
                 }
             }
             NetworkBody::Push(Push {
                 payload: PushBody::Del(_),
                 ..
             }) => {
-                if self.action(AclMessage::Delete, "Delete (egress)", key_expr?) == Permission::Deny
+                if self.action(
+                    AclMessage::Delete,
+                    "Delete (egress)",
+                    unwrap_or_return!(key_expr),
+                ) == Permission::Deny
                 {
-                    return None;
+                    return false;
                 }
             }
             NetworkBody::Declare(Declare {
@@ -485,10 +526,10 @@ impl InterceptorTrait for EgressAclEnforcer {
                 if self.action(
                     AclMessage::DeclareSubscriber,
                     "Declare Subscriber (egress)",
-                    key_expr?,
+                    unwrap_or_return!(key_expr),
                 ) == Permission::Deny
                 {
-                    return None;
+                    return false;
                 }
             }
             NetworkBody::Declare(Declare {
@@ -500,10 +541,10 @@ impl InterceptorTrait for EgressAclEnforcer {
                 if self.action(
                     AclMessage::DeclareSubscriber,
                     "Undeclare Subscriber (egress)",
-                    key_expr?,
+                    unwrap_or_return!(key_expr),
                 ) == Permission::Deny
                 {
-                    return None;
+                    return false;
                 }
             }
             NetworkBody::Declare(Declare {
@@ -513,10 +554,10 @@ impl InterceptorTrait for EgressAclEnforcer {
                 if self.action(
                     AclMessage::DeclareQueryable,
                     "Declare Queryable (egress)",
-                    key_expr?,
+                    unwrap_or_return!(key_expr),
                 ) == Permission::Deny
                 {
-                    return None;
+                    return false;
                 }
             }
             NetworkBody::Declare(Declare {
@@ -528,10 +569,10 @@ impl InterceptorTrait for EgressAclEnforcer {
                 if self.action(
                     AclMessage::DeclareQueryable,
                     "Undeclare Queryable (egress)",
-                    key_expr?,
+                    unwrap_or_return!(key_expr),
                 ) == Permission::Deny
                 {
-                    return None;
+                    return false;
                 }
             }
             NetworkBody::Declare(Declare {
@@ -541,10 +582,10 @@ impl InterceptorTrait for EgressAclEnforcer {
                 if self.action(
                     AclMessage::LivelinessToken,
                     "Liveliness Token (egress)",
-                    key_expr?,
+                    unwrap_or_return!(key_expr),
                 ) == Permission::Deny
                 {
-                    return None;
+                    return false;
                 }
             }
             NetworkBody::Declare(Declare {
@@ -556,10 +597,10 @@ impl InterceptorTrait for EgressAclEnforcer {
                 if self.action(
                     AclMessage::LivelinessToken,
                     "Undeclare Liveliness Token (egress)",
-                    key_expr?,
+                    unwrap_or_return!(key_expr),
                 ) == Permission::Deny
                 {
-                    return None;
+                    return false;
                 }
             }
             NetworkBody::Interest(Interest {
@@ -570,10 +611,10 @@ impl InterceptorTrait for EgressAclEnforcer {
                 if self.action(
                     AclMessage::LivelinessQuery,
                     "Liveliness Query (egress)",
-                    key_expr?,
+                    unwrap_or_return!(key_expr),
                 ) == Permission::Deny
                 {
-                    return None;
+                    return false;
                 }
             }
             NetworkBody::Interest(Interest {
@@ -584,10 +625,10 @@ impl InterceptorTrait for EgressAclEnforcer {
                 if self.action(
                     AclMessage::DeclareLivelinessSubscriber,
                     "Declare Liveliness Subscriber (egress)",
-                    key_expr?,
+                    unwrap_or_return!(key_expr),
                 ) == Permission::Deny
                 {
-                    return None;
+                    return false;
                 }
             }
             NetworkBody::Interest(Interest {
@@ -602,10 +643,10 @@ impl InterceptorTrait for EgressAclEnforcer {
                 if self.action(
                     AclMessage::DeclareLivelinessSubscriber,
                     "Undeclare Liveliness Subscriber (egress)",
-                    key_expr?,
+                    unwrap_or_return!(key_expr),
                 ) == Permission::Deny
                 {
-                    return None;
+                    return false;
                 }
             }
             // Unfiltered Declare messages
@@ -625,7 +666,7 @@ impl InterceptorTrait for EgressAclEnforcer {
             // Unfiltered remaining message types
             NetworkBody::Interest(_) | NetworkBody::OAM(_) | NetworkBody::ResponseFinal(_) => {}
         }
-        Some(ctx)
+        true
     }
 }
 pub trait AclActionMethods {

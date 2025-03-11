@@ -48,7 +48,7 @@ impl Mux {
 impl EPrimitives for Mux {
     fn send_interest(&self, ctx: RoutingContext<Interest>) {
         let interest_id = ctx.msg.id;
-        let ctx = RoutingContext {
+        let mut ctx = RoutingContext {
             msg: NetworkMessage {
                 body: NetworkBody::Interest(ctx.msg),
                 reliability: Reliability::Reliable,
@@ -69,21 +69,18 @@ impl EPrimitives for Mux {
             .as_ref()
             .and_then(|p| p.get_egress_cache(ctx.outface.get().unwrap()));
 
-        match self.interceptor.intercept(ctx, cache) {
-            Some(ctx) => {
-                let _ = self.handler.schedule(ctx.msg);
+        if self.interceptor.intercept(&mut ctx, cache) {
+            let _ = self.handler.schedule(ctx.msg);
+        } else {
+            // send declare final to avoid timeout on blocked interest
+            if let Some(face) = self.face.get().and_then(|f| f.upgrade()) {
+                face.reject_interest(interest_id);
             }
-            None => {
-                // send declare final to avoid timeout on blocked interest
-                if let Some(face) = self.face.get().and_then(|f| f.upgrade()) {
-                    face.reject_interest(interest_id);
-                }
-            }
-        };
+        }
     }
 
     fn send_declare(&self, ctx: RoutingContext<Declare>) {
-        let ctx = RoutingContext {
+        let mut ctx = RoutingContext {
             msg: NetworkMessage {
                 body: NetworkBody::Declare(ctx.msg),
                 reliability: Reliability::Reliable,
@@ -103,7 +100,7 @@ impl EPrimitives for Mux {
         let cache = prefix
             .as_ref()
             .and_then(|p| p.get_egress_cache(ctx.outface.get().unwrap()));
-        if let Some(ctx) = self.interceptor.intercept(ctx, cache) {
+        if self.interceptor.intercept(&mut ctx, cache) {
             let _ = self.handler.schedule(ctx.msg);
         }
     }
@@ -118,14 +115,14 @@ impl EPrimitives for Mux {
         if self.interceptor.interceptors.is_empty() {
             let _ = self.handler.schedule(msg);
         } else if let Some(face) = self.face.get().and_then(|f| f.upgrade()) {
-            let ctx = RoutingContext::new_out(msg, face.clone());
+            let mut ctx = RoutingContext::new_out(msg, face.clone());
             let prefix = ctx
                 .wire_expr()
                 .and_then(|we| (!we.has_suffix()).then(|| ctx.prefix()))
                 .flatten()
                 .cloned();
             let cache = prefix.as_ref().and_then(|p| p.get_egress_cache(&face));
-            if let Some(ctx) = self.interceptor.intercept(ctx, cache) {
+            if self.interceptor.intercept(&mut ctx, cache) {
                 let _ = self.handler.schedule(ctx.msg);
             }
         } else {
@@ -144,7 +141,7 @@ impl EPrimitives for Mux {
         if self.interceptor.interceptors.is_empty() {
             let _ = self.handler.schedule(msg);
         } else if let Some(face) = self.face.get().and_then(|f| f.upgrade()) {
-            let ctx = RoutingContext::new_out(msg, face.clone());
+            let mut ctx = RoutingContext::new_out(msg, face.clone());
             let prefix = ctx
                 .wire_expr()
                 .and_then(|we| (!we.has_suffix()).then(|| ctx.prefix()))
@@ -152,18 +149,15 @@ impl EPrimitives for Mux {
                 .cloned();
             let cache = prefix.as_ref().and_then(|p| p.get_egress_cache(&face));
 
-            match self.interceptor.intercept(ctx, cache) {
-                Some(ctx) => {
-                    let _ = self.handler.schedule(ctx.msg);
-                }
-                None => {
-                    // request was blocked by an interceptor, we need to send response final to avoid timeout error
-                    face.send_response_final(ResponseFinal {
-                        rid: request_id,
-                        ext_qos: response::ext::QoSType::RESPONSE_FINAL,
-                        ext_tstamp: None,
-                    })
-                }
+            if self.interceptor.intercept(&mut ctx, cache) {
+                let _ = self.handler.schedule(ctx.msg);
+            } else {
+                // request was blocked by an interceptor, we need to send response final to avoid timeout error
+                face.send_response_final(ResponseFinal {
+                    rid: request_id,
+                    ext_qos: response::ext::QoSType::RESPONSE_FINAL,
+                    ext_tstamp: None,
+                })
             }
         } else {
             tracing::error!("Uninitialized multiplexer!");
@@ -180,14 +174,14 @@ impl EPrimitives for Mux {
         if self.interceptor.interceptors.is_empty() {
             let _ = self.handler.schedule(msg);
         } else if let Some(face) = self.face.get().and_then(|f| f.upgrade()) {
-            let ctx = RoutingContext::new_out(msg, face.clone());
+            let mut ctx = RoutingContext::new_out(msg, face.clone());
             let prefix = ctx
                 .wire_expr()
                 .and_then(|we| (!we.has_suffix()).then(|| ctx.prefix()))
                 .flatten()
                 .cloned();
             let cache = prefix.as_ref().and_then(|p| p.get_egress_cache(&face));
-            if let Some(ctx) = self.interceptor.intercept(ctx, cache) {
+            if self.interceptor.intercept(&mut ctx, cache) {
                 let _ = self.handler.schedule(ctx.msg);
             }
         } else {
@@ -205,14 +199,14 @@ impl EPrimitives for Mux {
         if self.interceptor.interceptors.is_empty() {
             let _ = self.handler.schedule(msg);
         } else if let Some(face) = self.face.get().and_then(|f| f.upgrade()) {
-            let ctx = RoutingContext::new_out(msg, face.clone());
+            let mut ctx = RoutingContext::new_out(msg, face.clone());
             let prefix = ctx
                 .wire_expr()
                 .and_then(|we| (!we.has_suffix()).then(|| ctx.prefix()))
                 .flatten()
                 .cloned();
             let cache = prefix.as_ref().and_then(|p| p.get_egress_cache(&face));
-            if let Some(ctx) = self.interceptor.intercept(ctx, cache) {
+            if self.interceptor.intercept(&mut ctx, cache) {
                 let _ = self.handler.schedule(ctx.msg);
             }
         } else {
@@ -243,7 +237,7 @@ impl McastMux {
 
 impl EPrimitives for McastMux {
     fn send_interest(&self, ctx: RoutingContext<Interest>) {
-        let ctx = RoutingContext {
+        let mut ctx = RoutingContext {
             msg: NetworkMessage {
                 body: NetworkBody::Interest(ctx.msg),
                 reliability: Reliability::Reliable,
@@ -263,13 +257,13 @@ impl EPrimitives for McastMux {
         let cache = prefix
             .as_ref()
             .and_then(|p| p.get_egress_cache(ctx.outface.get().unwrap()));
-        if let Some(ctx) = self.interceptor.intercept(ctx, cache) {
+        if self.interceptor.intercept(&mut ctx, cache) {
             let _ = self.handler.schedule(ctx.msg);
         }
     }
 
     fn send_declare(&self, ctx: RoutingContext<Declare>) {
-        let ctx = RoutingContext {
+        let mut ctx = RoutingContext {
             msg: NetworkMessage {
                 body: NetworkBody::Declare(ctx.msg),
                 reliability: Reliability::Reliable,
@@ -289,7 +283,7 @@ impl EPrimitives for McastMux {
         let cache = prefix
             .as_ref()
             .and_then(|p| p.get_egress_cache(ctx.outface.get().unwrap()));
-        if let Some(ctx) = self.interceptor.intercept(ctx, cache) {
+        if self.interceptor.intercept(&mut ctx, cache) {
             let _ = self.handler.schedule(ctx.msg);
         }
     }
@@ -304,14 +298,14 @@ impl EPrimitives for McastMux {
         if self.interceptor.interceptors.is_empty() {
             let _ = self.handler.schedule(msg);
         } else if let Some(face) = self.face.get() {
-            let ctx = RoutingContext::new_out(msg, face.clone());
+            let mut ctx = RoutingContext::new_out(msg, face.clone());
             let prefix = ctx
                 .wire_expr()
                 .and_then(|we| (!we.has_suffix()).then(|| ctx.prefix()))
                 .flatten()
                 .cloned();
             let cache = prefix.as_ref().and_then(|p| p.get_egress_cache(face));
-            if let Some(ctx) = self.interceptor.intercept(ctx, cache) {
+            if self.interceptor.intercept(&mut ctx, cache) {
                 let _ = self.handler.schedule(ctx.msg);
             }
         } else {
@@ -329,14 +323,14 @@ impl EPrimitives for McastMux {
         if self.interceptor.interceptors.is_empty() {
             let _ = self.handler.schedule(msg);
         } else if let Some(face) = self.face.get() {
-            let ctx = RoutingContext::new_out(msg, face.clone());
+            let mut ctx = RoutingContext::new_out(msg, face.clone());
             let prefix = ctx
                 .wire_expr()
                 .and_then(|we| (!we.has_suffix()).then(|| ctx.prefix()))
                 .flatten()
                 .cloned();
             let cache = prefix.as_ref().and_then(|p| p.get_egress_cache(face));
-            if let Some(ctx) = self.interceptor.intercept(ctx, cache) {
+            if self.interceptor.intercept(&mut ctx, cache) {
                 let _ = self.handler.schedule(ctx.msg);
             }
         } else {
@@ -354,14 +348,14 @@ impl EPrimitives for McastMux {
         if self.interceptor.interceptors.is_empty() {
             let _ = self.handler.schedule(msg);
         } else if let Some(face) = self.face.get() {
-            let ctx = RoutingContext::new_out(msg, face.clone());
+            let mut ctx = RoutingContext::new_out(msg, face.clone());
             let prefix = ctx
                 .wire_expr()
                 .and_then(|we| (!we.has_suffix()).then(|| ctx.prefix()))
                 .flatten()
                 .cloned();
             let cache = prefix.as_ref().and_then(|p| p.get_egress_cache(face));
-            if let Some(ctx) = self.interceptor.intercept(ctx, cache) {
+            if self.interceptor.intercept(&mut ctx, cache) {
                 let _ = self.handler.schedule(ctx.msg);
             }
         } else {
@@ -379,14 +373,14 @@ impl EPrimitives for McastMux {
         if self.interceptor.interceptors.is_empty() {
             let _ = self.handler.schedule(msg);
         } else if let Some(face) = self.face.get() {
-            let ctx = RoutingContext::new_out(msg, face.clone());
+            let mut ctx = RoutingContext::new_out(msg, face.clone());
             let prefix = ctx
                 .wire_expr()
                 .and_then(|we| (!we.has_suffix()).then(|| ctx.prefix()))
                 .flatten()
                 .cloned();
             let cache = prefix.as_ref().and_then(|p| p.get_egress_cache(face));
-            if let Some(ctx) = self.interceptor.intercept(ctx, cache) {
+            if self.interceptor.intercept(&mut ctx, cache) {
                 let _ = self.handler.schedule(ctx.msg);
             }
         } else {
