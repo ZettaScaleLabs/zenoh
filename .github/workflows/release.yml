@@ -47,7 +47,8 @@ jobs:
           live-run: ${{ inputs.live-run || false }}
           version: ${{ inputs.version }}
           branch: ${{ inputs.branch }}
-          github-token: ${{ secrets.BOT_TOKEN_WORKFLOW }}
+          #github-token: ${{ secrets.BOT_TOKEN_WORKFLOW }}
+          github-token: ${{ github.token }}
 
       - uses: ZettaScaleLabs/ci/bump-crates@use-tsup-take-3
         with:
@@ -57,7 +58,8 @@ jobs:
           branch: ${{ steps.create-release-branch.outputs.branch }}
           bump-deps-pattern: zenoh.*
           bump-deps-version: ${{ steps.create-release-branch.outputs.version }}
-          github-token: ${{ secrets.BOT_TOKEN_WORKFLOW }}
+          #github-token: ${{ secrets.BOT_TOKEN_WORKFLOW }}
+          github-token: ${{ github.token }}
 
   build-debian:
     name: Build Debian packages
@@ -72,7 +74,7 @@ jobs:
   build-standalone:
     name: Build executables and libraries
     needs: tag
-    uses: eclipse-zenoh/ci/.github/workflows/build-crates-standalone.yml@main
+    uses: ZettaScaleLabs/ci/.github/workflows/build-crates-standalone.yml@use-tsup-take-3
     with:
       repo: ${{ github.repository }}
       version: ${{ needs.tag.outputs.version }}
@@ -86,7 +88,7 @@ jobs:
   cargo:
     needs: tag
     name: Publish Cargo crates
-    uses: eclipse-zenoh/ci/.github/workflows/release-crates-cargo.yml@main
+    uses: ZettaScaleLabs/ci/.github/workflows/release-crates-cargo.yml@use-tsup-take-3
     with:
       repo: ${{ github.repository }}
       live-run: ${{ inputs.live-run || false }}
@@ -97,7 +99,7 @@ jobs:
   debian:
     name: Publish Debian packages
     needs: [tag, build-debian, cargo]
-    uses: eclipse-zenoh/ci/.github/workflows/release-crates-debian.yml@main
+    uses: ZettaScaleLabs/ci/.github/workflows/release-crates-debian.yml@use-tsup-take-3
     with:
       no-build: true
       live-run: ${{ inputs.live-run || false }}
@@ -109,7 +111,7 @@ jobs:
   homebrew:
     name: Publish Homebrew formulae
     needs: [tag, build-standalone, cargo]
-    uses: eclipse-zenoh/ci/.github/workflows/release-crates-homebrew.yml@main
+    uses: ZettaScaleLabs/ci/.github/workflows/release-crates-homebrew.yml@use-tsup-take-3
     with:
       no-build: true
       repo: ${{ github.repository }}
@@ -130,7 +132,7 @@ jobs:
   eclipse:
     name: Publish artifacts to Eclipse downloads
     needs: [tag, build-standalone, cargo]
-    uses: eclipse-zenoh/ci/.github/workflows/release-crates-eclipse.yml@main
+    uses: ZettaScaleLabs/ci/.github/workflows/release-crates-eclipse.yml@use-tsup-take-3
     with:
       no-build: true
       live-run: ${{ inputs.live-run || false }}
@@ -147,7 +149,7 @@ jobs:
   github:
     name: Publish artifacts to GitHub Releases
     needs: [tag, build-standalone, cargo]
-    uses: eclipse-zenoh/ci/.github/workflows/release-crates-github.yml@main
+    uses: ZettaScaleLabs/ci/.github/workflows/release-crates-github.yml@use-tsup-take-3
     with:
       no-build: true
       live-run: ${{ inputs.live-run || false }}
@@ -163,7 +165,7 @@ jobs:
   dockerhub:
     name: Publish container image to DockerHub
     needs: [tag, build-standalone, cargo]
-    uses: eclipse-zenoh/ci/.github/workflows/release-crates-dockerhub.yml@main
+    uses: ZettaScaleLabs/ci/.github/workflows/release-crates-dockerhub.yml@use-tsup-take-3
     with:
       no-build: true
       live-run: ${{ inputs.live-run || false }}
