@@ -41,7 +41,7 @@ jobs:
       branch: ${{ steps.create-release-branch.outputs.branch }}
     steps:
       - id: create-release-branch
-        uses: eclipse-zenoh/ci/create-release-branch@main
+        uses: ZettaScaleLabs/ci/create-release-branch@use-tsup-take-3
         with:
           repo: ${{ github.repository }}
           live-run: ${{ inputs.live-run || false }}
@@ -49,7 +49,7 @@ jobs:
           branch: ${{ inputs.branch }}
           github-token: ${{ secrets.BOT_TOKEN_WORKFLOW }}
 
-      - uses: eclipse-zenoh/ci/bump-crates@main
+      - uses: ZettaScaleLabs/ci/bump-crates@use-tsup-take-3
         with:
           repo: ${{ github.repository }}
           live-run: ${{ inputs.live-run || false }}
@@ -62,7 +62,7 @@ jobs:
   build-debian:
     name: Build Debian packages
     needs: tag
-    uses: eclipse-zenoh/ci/.github/workflows/build-crates-debian.yml@main
+    uses: ZettaScaleLabs/ci/.github/workflows/build-crates-debian.yml@use-tsup-take-3
     with:
       repo: ${{ github.repository }}
       version: ${{ needs.tag.outputs.version }}
