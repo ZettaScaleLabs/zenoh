@@ -5,5 +5,5 @@ rustflags = "-Ctarget-feature=-crt-static"
 rustflags = "-Ctarget-feature=-crt-static"
 
 [registries.artifactory]
-index = "sparse+https://zettascale.jfrog.io/artifactory/api/cargo/zetta-private/index/"
+index = "sparse+https://zettascale.jfrog.io/artifactory/api/cargo/zetta-qnx/index/"
 credential-provider = ["cargo:token"]
