@@ -30,21 +30,27 @@ cargo build --target x86_64-pc-nto-qnx710 -p zenoh --no-default-features --featu
 
 The following Zenoh examples are supported:
 
-* z_scout
-* z_info
-* z_put
-* z_put_float
-* z_delete
-* z_formats
-* z_pub
-* z_sub
-* z_pull
-* z_queryable
-* z_storage
-* z_get
-* z_forward
-* z_pub_thr/z_sub_thr
-* z_ping/z_pong
+* z_bytes  
+* z_delete  
+* z_formats  
+* z_forward  
+* z_get  
+* z_get_liveliness  
+* z_info  
+* z_ping  
+* z_pong  
+* z_pub  
+* z_pub_liveliness  
+* z_pub_thr  
+* z_pull  
+* z_put  
+* z_put_float  
+* z_queryable  
+* z_scout  
+* z_storage  
+* z_sub  
+* z_sub_liveliness  
+* z_sub_thr  
 
 To build the examples for the `x86_64-pc-nto-qnx710` target the command would be:
 
