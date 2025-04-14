@@ -246,3 +246,9 @@ lto = "fat"
 codegen-units = 1
 opt-level = 3
 panic = "abort"
+
+# Support for building for QNX
+[patch.crates-io]
+pnet_datalink = { git = "https://github.com/ZettaScaleLabs/libpnet.git", branch = "qnx-port" }
+ring = { git = "https://github.com/ZettaScaleLabs/ring.git", branch = "qnx-port-0.17.13" }
+socket2 = { git = "https://github.com/ZettaScaleLabs/socket2.git", branch = "qnx-port" }
