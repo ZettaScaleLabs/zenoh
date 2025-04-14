@@ -27,7 +27,7 @@ readme = "README.md"
 publish = false
 
 [features]
-default = ["zenoh/default", "zenoh-ext/default"]
+#default = ["zenoh/default", "zenoh-ext/default"]
 shared-memory = ["zenoh/shared-memory"]
 unstable = ["zenoh/unstable"]
 
@@ -37,7 +37,8 @@ futures = { workspace = true }
 prost = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "time", "io-std"] }
-zenoh = { workspace = true, default-features = false }
+#zenoh = { workspace = true, default-features = false }
+zenoh = { workspace = true, default-features = false, features = ["auth_pubkey", "auth_usrpwd", "transport_multilink", "transport_compression", "transport_tcp", "transport_udp", "transport_ws"] }
 zenoh-ext = { workspace = true, default-features = false, features = ["unstable"] }
 
 [dev-dependencies]

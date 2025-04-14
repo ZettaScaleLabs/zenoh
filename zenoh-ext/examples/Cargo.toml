@@ -28,7 +28,7 @@ publish = false
 maintenance = { status = "actively-developed" }
 
 [features]
-default = ["zenoh/default", "zenoh-ext/default", "zenoh-examples/default"]
+#default = ["zenoh/default", "zenoh-ext/default", "zenoh-examples/default"]
 unstable = []
 
 [dependencies]
@@ -41,7 +41,7 @@ tokio = { workspace = true, features = [
     "macros",
     "io-std",
 ] }
-zenoh = { workspace = true, default-features = false }
+zenoh = { workspace = true, default-features = false, features = ["auth_pubkey", "auth_usrpwd", "transport_multilink", "transport_compression", "transport_tcp", "transport_udp", "transport_ws"] }
 zenoh-ext = { workspace = true, default-features = false, features = ["unstable"]}
 zenoh-examples = { workspace = true, default-features = false }
 
