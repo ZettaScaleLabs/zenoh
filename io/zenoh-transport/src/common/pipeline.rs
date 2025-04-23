@@ -35,7 +35,7 @@ use zenoh_config::QueueSizeConf;
 use zenoh_core::zlock;
 use zenoh_protocol::{
     core::Priority,
-    network::NetworkMessage,
+    network::{NetworkMessageExt, NetworkMessageRef},
     transport::{
         fragment,
         fragment::FragmentHeader,
@@ -408,7 +408,7 @@ impl StageIn {
     fn push_network_message(
         &mut self,
         shared: &StageInShared,
-        msg: &NetworkMessage,
+        msg: NetworkMessageRef,
         priority: Priority,
         deadline: &mut Deadline,
     ) -> Result<bool, TransportClosed> {
@@ -795,7 +795,7 @@ impl TransmissionPipelineProducer {
     #[inline]
     pub(crate) fn push_network_message(
         &self,
-        msg: NetworkMessage,
+        msg: NetworkMessageRef,
     ) -> Result<bool, TransportClosed> {
         // If the queue is not QoS, it means that we only have one priority with index 0.
         let (idx, priority) = if self.stage_in.len() > 1 {
@@ -820,7 +820,7 @@ impl TransmissionPipelineProducer {
         let mut deadline = Deadline::new(wait_time, max_wait_time);
         // Lock the channel. We are the only one that will be writing on it.
         let mut queue = zlock!(stage_in.queue);
-        queue.push_network_message(stage_in, &msg, priority, &mut deadline)
+        queue.push_network_message(stage_in, msg, priority, &mut deadline)
     }
 
     #[inline]
@@ -911,7 +911,7 @@ mod tests {
     use zenoh_codec::{network::NetworkMessageIter, RCodec, Zenoh080};
     use zenoh_protocol::{
         core::{Bits, CongestionControl, Encoding, Priority, Reliability},
-        network::{ext, Push},
+        network::{ext, NetworkMessage, Push},
         transport::{BatchSize, Fragment, Frame, TransportBody, TransportSn},
         zenoh::{PushBody, Put},
     };
@@ -983,7 +983,7 @@ mod tests {
                     "Pipeline Flow [>>>]: Pushed {} msgs ({payload_size} bytes)",
                     i + 1
                 );
-                queue.push_network_message(message.clone()).unwrap();
+                queue.push_network_message(message.as_ref()).unwrap();
             }
         }
 
@@ -1112,7 +1112,7 @@ mod tests {
                 println!(
                     "Pipeline Blocking [>>>]: ({id}) Scheduling message #{i} with payload size of {payload_size} bytes"
                 );
-                queue.push_network_message(message.clone()).unwrap();
+                queue.push_network_message(message.as_ref()).unwrap();
                 let c = counter.fetch_add(1, Ordering::AcqRel);
                 println!(
                     "Pipeline Blocking [>>>]: ({}) Scheduled message #{} (tot {}) with payload size of {} bytes",
@@ -1226,7 +1226,7 @@ mod tests {
                     let duration = Duration::from_millis(5_500);
                     let start = Instant::now();
                     while start.elapsed() < duration {
-                        producer.push_network_message(message.clone()).unwrap();
+                        producer.push_network_message(message.as_ref()).unwrap();
                     }
                 }
             }
@@ -1282,9 +1282,9 @@ mod tests {
         }
         .into();
         // First message should not be rejected as the is one batch available in the queue
-        assert!(producer.push_network_message(message.clone()).is_ok());
+        assert!(producer.push_network_message(message.as_ref()).is_ok());
         // Second message should be rejected
-        assert!(producer.push_network_message(message.clone()).is_err());
+        assert!(producer.push_network_message(message.as_ref()).is_err());
 
         Ok(())
     }
@@ -1330,7 +1330,7 @@ mod tests {
         }
         .into();
         let producer = task::spawn_blocking(move || {
-            assert!(!producer.push_network_message(message.clone()).unwrap());
+            assert!(!producer.push_network_message(message.as_ref()).unwrap());
             producer
         })
         .await
@@ -1397,13 +1397,13 @@ mod tests {
         }
         .into();
         // push a first message and pull it to activate backoff
-        producer.push_network_message(message.clone()).unwrap();
+        producer.push_network_message(message.as_ref()).unwrap();
         let (batch, prio) = consumer.pull().await.unwrap();
         // push a second message before refilling to keep backoff activated
-        producer.push_network_message(message.clone()).unwrap();
+        producer.push_network_message(message.as_ref()).unwrap();
         // start producer task
         let producer_task: JoinHandle<Result<(), _>> = task::spawn_blocking(move || loop {
-            producer.push_network_message(message.clone())?;
+            producer.push_network_message(message.as_ref())?;
         });
         consumer.refill(batch, prio);
         // following batch may still use small buffer size
