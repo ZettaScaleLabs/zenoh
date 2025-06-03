@@ -2758,8 +2758,7 @@ dependencies = [
 [[package]]
 name = "pnet_base"
 version = "0.35.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffc190d4067df16af3aba49b3b74c469e611cad6314676eaf1157f31aa0fb2f7"
+source = "git+https://github.com/ZettaScaleLabs/libpnet.git?branch=qnx-port#67f50eebd2cd0033ea7a8d6a55736b9a4b290ed0"
 dependencies = [
  "no-std-net",
 ]
@@ -2767,8 +2766,7 @@ dependencies = [
 [[package]]
 name = "pnet_datalink"
 version = "0.35.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e79e70ec0be163102a332e1d2d5586d362ad76b01cec86f830241f2b6452a7b7"
+source = "git+https://github.com/ZettaScaleLabs/libpnet.git?branch=qnx-port#67f50eebd2cd0033ea7a8d6a55736b9a4b290ed0"
 dependencies = [
  "ipnetwork",
  "libc",
@@ -2780,8 +2778,7 @@ dependencies = [
 [[package]]
 name = "pnet_sys"
 version = "0.35.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d4643d3d4db6b08741050c2f3afa9a892c4244c085a72fcda93c9c2c9a00f4b"
+source = "git+https://github.com/ZettaScaleLabs/libpnet.git?branch=qnx-port#67f50eebd2cd0033ea7a8d6a55736b9a4b290ed0"
 dependencies = [
  "libc",
  "winapi",
@@ -3176,8 +3173,7 @@ checksum = "7a66a03ae7c801facd77a29370b4faec201768915ac14a721ba36f20bc9c209b"
 [[package]]
 name = "ring"
 version = "0.17.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70ac5d832aa16abd7d1def883a8545280c20a60f523a370aa3a9617c2b8550ee"
+source = "git+https://github.com/ZettaScaleLabs/ring.git?branch=qnx-port-0.17.13#4037ae9568b9faa21273a85ddb4c3d35e8e53ffe"
 dependencies = [
  "cc",
  "cfg-if 1.0.0",
@@ -3783,8 +3779,7 @@ dependencies = [
 [[package]]
 name = "socket2"
 version = "0.5.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce305eb0b4296696835b71df73eb912e0f1ffd2556a501fcede6e0c50349191c"
+source = "git+https://github.com/ZettaScaleLabs/socket2.git?branch=qnx-port#d8fbbec76a05aedf174c9e7aa3a28aba259f488d"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
