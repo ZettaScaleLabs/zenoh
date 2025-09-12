@@ -580,49 +580,70 @@ impl PolicyEnforcer {
         })
     }
 
-    /**
-     * Check each msg against the ACL ruleset for allow/deny
-     */
+    /// Check a msg against the ACL ruleset for allow/deny
+    /// Returns a decision describing the permission and its source (default permission or explicit rule)
     pub fn policy_decision_point(
         &self,
         subject: usize,
         flow: InterceptorFlow,
         message: AclMessage,
         key_expr: &keyexpr,
-    ) -> ZResult<Permission> {
-        let policy_map = &self.policy_map;
-        if policy_map.is_empty() {
-            return Ok(self.default_permission);
-        }
-        match policy_map.get(&subject) {
-            Some(single_policy) => {
-                let deny_result = single_policy
-                    .flow(flow)
-                    .action(message)
-                    .deny
-                    .nodes_including(key_expr)
-                    .any(|n| n.weight().is_some());
-                if deny_result {
-                    return Ok(Permission::Deny);
-                }
-                if self.default_permission == Permission::Allow {
-                    Ok(Permission::Allow)
-                } else {
-                    let allow_result = single_policy
-                        .flow(flow)
-                        .action(message)
-                        .allow
-                        .nodes_including(key_expr)
-                        .any(|n| n.weight().is_some());
+    ) -> PolicyDecision {
+        let Some(single_policy) = self.policy_map.get(&subject) else {
+            return PolicyDecision::Default(self.default_permission);
+        };
+        let tree_has_perm =
+            |tree: &KeBoxTree<_>| tree.nodes_including(key_expr).any(|n| n.weight().is_some());
 
-                    if allow_result {
-                        Ok(Permission::Allow)
-                    } else {
-                        Ok(Permission::Deny)
-                    }
+        let permission_policy = single_policy.flow(flow).action(message);
+        if tree_has_perm(&permission_policy.deny) {
+            return PolicyDecision::Rule(Permission::Deny);
+        }
+        if self.default_permission == Permission::Allow {
+            // No need to parse the allow tree:
+            // in case of Default(Allow) only a Rule(Deny) would change the cross-subject decision
+            PolicyDecision::Default(Permission::Allow)
+        } else {
+            if tree_has_perm(&permission_policy.allow) {
+                PolicyDecision::Rule(Permission::Allow)
+            } else {
+                PolicyDecision::Default(Permission::Deny)
+            }
+        }
+    }
+}
+
+#[derive(Eq, PartialEq, Clone, Copy)]
+pub(crate) enum PolicyDecision {
+    /// A decision returned from a configured ACL rule
+    Rule(Permission),
+    /// A decision returned by fallback to configured default_permission
+    Default(Permission),
+}
+
+// Enforce order on PolicyDecisions by order of priority in ACL permission logic
+// Rule(Deny) > Rule(Allow) > Default
+impl Ord for PolicyDecision {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering::*;
+        match (self, other) {
+            (Self::Rule(_), Self::Default(_)) => Greater,
+            (Self::Default(_), Self::Rule(_)) => Less,
+            (Self::Rule(self_permission), Self::Rule(other_permission))
+            | (Self::Default(self_permission), Self::Default(other_permission)) => {
+                match (self_permission, other_permission) {
+                    (Permission::Allow, Permission::Allow)
+                    | (Permission::Deny, Permission::Deny) => Equal,
+                    (Permission::Allow, Permission::Deny) => Less,
+                    (Permission::Deny, Permission::Allow) => Greater,
                 }
             }
-            None => Ok(self.default_permission),
         }
+    }
+}
+
+impl PartialOrd for PolicyDecision {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }

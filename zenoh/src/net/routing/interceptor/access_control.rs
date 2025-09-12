@@ -44,7 +44,10 @@ use super::{
 };
 use crate::{
     key_expr::KeyExpr,
-    net::routing::interceptor::{authorization::SubjectQuery, InterceptorContext},
+    net::routing::interceptor::{
+        authorization::{PolicyDecision, SubjectQuery},
+        InterceptorContext,
+    },
 };
 pub struct AclEnforcer {
     enforcer: Arc<PolicyEnforcer>,
@@ -934,47 +937,35 @@ pub trait AclActionMethods {
     fn authn_ids(&self) -> &Vec<AuthSubject>;
     fn action(&self, action: AclMessage, log_msg: &str, key_expr: &keyexpr) -> Permission {
         let policy_enforcer = self.policy_enforcer();
-        let authn_ids = self.authn_ids();
-        let zid = self.zid();
-        let mut decision = policy_enforcer.default_permission;
-        for subject in authn_ids {
-            match policy_enforcer.policy_decision_point(subject.id, self.flow(), action, key_expr) {
-                Ok(Permission::Allow) => {
-                    tracing::trace!(
-                        "{} on {} is authorized to {} on {}",
-                        zid,
-                        subject.name,
-                        log_msg,
-                        key_expr
-                    );
-                    decision = Permission::Allow;
-                    break;
-                }
-                Ok(Permission::Deny) => {
-                    tracing::trace!(
-                        "{} on {} is unauthorized to {} on {}",
-                        zid,
-                        subject.name,
-                        log_msg,
-                        key_expr
-                    );
+        let policy_decision_point = |subject_id| {
+            policy_enforcer.policy_decision_point(subject_id, self.flow(), action, key_expr)
+        };
+        // Iterate over all subject decisions to find the decision with most priority (enforced by the Ord implementation)
+        // when a Rule(Deny) is found, short-circuit out of the iterator
+        let (subject_name, decision) = self
+            .authn_ids()
+            .iter()
+            .map(|subject| (subject.name.as_str(), policy_decision_point(subject.id)))
+            .take_while_inclusive(|(_, policy_decision)| {
+                *policy_decision != PolicyDecision::Rule(Permission::Deny)
+            })
+            .max_by_key(|(_, policy_decision)| *policy_decision)
+            .unwrap_or((
+                "<no matching subject>",
+                PolicyDecision::Default(policy_enforcer.default_permission),
+            ));
 
-                    decision = Permission::Deny;
-                    continue;
-                }
-                Err(e) => {
-                    tracing::debug!(
-                        "{} on {} has an authorization error to {} on {}: {}",
-                        zid,
-                        subject.name,
-                        log_msg,
-                        key_expr,
-                        e
-                    );
-                    return Permission::Deny;
-                }
+        let decision = match decision {
+            PolicyDecision::Rule(permission) | PolicyDecision::Default(permission) => permission,
+        };
+        tracing::trace!(
+            "{zid} on {subject_name} is {is_authorized} to {log_msg} on {key_expr}",
+            zid = self.zid(),
+            is_authorized = match decision {
+                Permission::Allow => "authorized",
+                Permission::Deny => "unauthorized",
             }
-        }
+        );
         decision
     }
 }
