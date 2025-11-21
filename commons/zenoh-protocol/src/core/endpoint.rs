@@ -696,6 +696,63 @@ impl EndPoint {
     }
 }
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum EndPoints {
+    Single(EndPoint),
+    Vec(Vec<EndPoint>),
+}
+
+impl EndPoints {
+    pub fn flatten(self) -> Vec<EndPoint> {
+        match self {
+            EndPoints::Single(ep) => vec![ep],
+            EndPoints::Vec(eps) => eps,
+        }
+    }
+
+    pub fn as_vec(&self) -> Vec<EndPoint> {
+        match self {
+            EndPoints::Single(ep) => vec![ep.clone()],
+            EndPoints::Vec(eps) => eps.clone(),
+        }
+    }
+}
+
+impl From<EndPoint> for EndPoints {
+    fn from(ep: EndPoint) -> EndPoints {
+        EndPoints::Single(ep)
+    }
+}
+
+impl TryFrom<String> for EndPoints {
+    type Error = ZError;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        println!("YOOOOOOOOOOOOOOOoooo");
+        const ERR: &str =
+            "Endpoints must be of the form <endpoint> or [<endpoint>, <endpoint>, ...]";
+        if s.starts_with('[') && s.ends_with(']') {
+            let eps: ZResult<Vec<EndPoint>> = s[1..s.len() - 1]
+                .split(',')
+                .map(|x| EndPoint::from_str(x.trim()))
+                .collect();
+            eps.map(EndPoints::Vec)
+        } else {
+            EndPoint::from_str(s.as_str())
+                .map(EndPoints::Single)
+                .map_err(|e| zerror!("{}: {}", ERR, e).into())
+        }
+    }
+}
+
+impl FromStr for EndPoints {
+    type Err = ZError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s.to_owned())
+    }
+}
+
 #[test]
 fn endpoints() {
     assert!(EndPoint::from_str("/").is_err());
