@@ -21,8 +21,8 @@ use zenoh_protocol::core::{WhatAmI, ZenohIdProto};
 
 use crate::{
     family::{
-        TransportFamily, TransportFamilyCollector, TransportMetric, COLLECT_PER_LINK,
-        COLLECT_PER_TRANSPORT,
+        TransportFamily, TransportFamilyCollector, TransportMetric, COLLECT_PER_KEY,
+        COLLECT_PER_LINK, COLLECT_PER_TRANSPORT,
     },
     histogram::{Histogram, HistogramBuckets, PAYLOAD_SIZE_BUCKETS},
     keys::{HistogramPerKey, StatsKeysRegistry},
@@ -154,10 +154,12 @@ impl StatsRegistry {
         writer: &mut impl Write,
         per_transport: bool,
         per_link: bool,
+        per_key: bool,
     ) -> fmt::Result {
         let registry = self.0.registry.read().unwrap();
         COLLECT_PER_TRANSPORT.set(per_transport);
         COLLECT_PER_LINK.set(per_link);
+        COLLECT_PER_KEY.set(per_key);
         encode(writer, &registry)?;
         Ok(())
     }

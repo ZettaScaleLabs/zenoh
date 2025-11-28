@@ -711,6 +711,7 @@ fn metrics(context: &AdminContext, query: Query) {
             &mut metrics,
             query.parameters().get("per_transport") != Some("false"),
             query.parameters().get("per_link") != Some("false"),
+            query.parameters().get("per_key") != Some("false"),
         )
         .expect("metrics should be encodable");
     #[cfg(feature = "stats")]

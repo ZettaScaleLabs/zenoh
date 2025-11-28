@@ -1,4 +1,5 @@
 use std::{
+    any::TypeId,
     cell::Cell,
     collections::{hash_map::Entry, HashMap},
     fmt,
@@ -15,6 +16,7 @@ use prometheus_client::{
 };
 
 use crate::{
+    keys::HistogramPerKey,
     labels::{DisconnectedLabels, LabelsSetRef, LinkLabels, StatsPath, TransportLabels},
     StatsDirection,
 };
@@ -248,9 +250,8 @@ struct TransportCollected<M: TransportMetric> {
 
 thread_local! {
     pub(crate) static COLLECT_PER_TRANSPORT: Cell<bool> = const { Cell::new(false) };
-}
-thread_local! {
     pub(crate) static COLLECT_PER_LINK: Cell<bool> = const { Cell::new(false) };
+    pub(crate) static COLLECT_PER_KEY: Cell<bool> = const { Cell::new(false) };
 }
 
 #[derive(Debug)]
@@ -268,6 +269,9 @@ impl<
     > Collector for TransportFamilyCollector<S, M, C>
 {
     fn encode(&self, mut encoder: DescriptorEncoder) -> fmt::Result {
+        if TypeId::of::<M>() == TypeId::of::<HistogramPerKey>() && !COLLECT_PER_KEY.get() {
+            return Ok(());
+        }
         let collected = self.family.collect();
         let mut metric_encoder =
             encoder.encode_descriptor(&self.name, &self.help, self.unit.as_ref(), M::TYPE)?;
