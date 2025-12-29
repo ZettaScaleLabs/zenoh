@@ -25,8 +25,8 @@ use std::{
     future::Future,
     ops::Deref,
     sync::{
-        atomic::{AtomicUsize, Ordering},
-        OnceLock,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc, OnceLock,
     },
     time::Duration,
 };
@@ -66,8 +66,17 @@ impl Default for RuntimeParam {
 
 impl RuntimeParam {
     pub fn build(&self, zrt: ZRuntime) -> Result<Runtime> {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(self.worker_threads)
+        let mut builder = match zrt {
+            /*ZRuntime::RX => {
+                tokio::runtime::Builder::new_current_thread()
+            },*/
+            _ => {
+                let mut b = tokio::runtime::Builder::new_multi_thread();
+                b.worker_threads(self.worker_threads);
+                b
+            }
+        };
+        builder
             .max_blocking_threads(self.max_blocking_threads)
             .enable_io()
             .enable_time()
@@ -77,8 +86,25 @@ impl RuntimeParam {
                     .unwrap()
                     .fetch_add(1, Ordering::SeqCst);
                 format!("{zrt}-{id}")
-            })
-            .build()?;
+            });
+
+        if zrt == ZRuntime::RX {
+            let busy_waiting = Arc::new(AtomicBool::new(false));
+            builder.on_thread_park(move || {
+                let busy_waiting_clone = busy_waiting.clone();
+                if busy_waiting
+                    .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    zrt.spawn(async move {
+                        std::thread::sleep(Duration::from_micros(100));
+                        busy_waiting_clone.store(false, Ordering::Relaxed);
+                    });
+                }
+            });
+        }
+
+        let rt = builder.build()?;
         Ok(rt)
     }
 }
