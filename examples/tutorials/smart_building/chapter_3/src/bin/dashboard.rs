@@ -2,11 +2,11 @@ use std::time::Duration;
 use zenoh::config::Config;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     env_logger::init();
 
     println!("Opening Zenoh session...");
-    let session = zenoh::open(Config::default()).await?;
+    let session = zenoh::open(Config::default()).await.unwrap();
 
     println!("Dashboard ready. Querying room status...\n");
 
@@ -16,13 +16,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let results = session
             .get("building/floor1/room_a/status")
-            .await?;
+            .await
+            .unwrap();
 
         let mut found = false;
         while let Ok(reply) = results.recv_async().await {
-            match reply.sample {
+            match reply.result() {
                 Ok(sample) => {
-                    let response = String::from_utf8_lossy(&sample.payload);
+                    let response = sample
+                        .payload()
+                        .try_to_string()
+                        .unwrap_or_else(|_| "unknown".into());
                     println!("[Dashboard] Response: {}\n", response);
                     found = true;
                 }
@@ -40,5 +44,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("Dashboard: Done with 5 queries.");
-    Ok(())
 }

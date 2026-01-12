@@ -2,6 +2,10 @@
 name = "smart-building-ch2"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.75"
+
+[workspace]
+# Make this a standalone workspace, not part of the main Zenoh workspace
 
 [[bin]]
 name = "multi_sensor"
@@ -20,7 +24,7 @@ name = "selective_monitor"
 path = "src/bin/selective_monitor.rs"
 
 [dependencies]
-zenoh = { version = "0.11", features = ["default"] }
+zenoh = { path = "../../../../zenoh", features = ["default"] }
 tokio = { version = "1", features = ["full"] }
 rand = "0.8"
 env_logger = "0.11"

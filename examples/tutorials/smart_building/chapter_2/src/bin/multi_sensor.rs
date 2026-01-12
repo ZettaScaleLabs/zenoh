@@ -2,23 +2,26 @@ use std::time::Duration;
 use zenoh::config::Config;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     env_logger::init();
 
     println!("Opening Zenoh session...");
-    let session = zenoh::open(Config::default()).await?;
+    let session = zenoh::open(Config::default()).await.unwrap();
 
     // Declare publishers for different sensors in Room A
     println!("Declaring publishers for temperature, humidity, and occupancy...");
     let pub_temp = session
         .declare_publisher("building/floor1/room_a/temperature")
-        .await?;
+        .await
+        .unwrap();
     let pub_humidity = session
         .declare_publisher("building/floor1/room_a/humidity")
-        .await?;
+        .await
+        .unwrap();
     let pub_occupancy = session
         .declare_publisher("building/floor1/room_a/occupancy")
-        .await?;
+        .await
+        .unwrap();
 
     println!("Multi-Sensor Publisher started.\n");
 
@@ -36,13 +39,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  Humidity: {:.0}%", humidity.max(0.0).min(100.0));
         println!("  Occupancy: {} people\n", occupancy);
 
-        pub_temp.put(format!("{:.1}", temp)).await?;
-        pub_humidity.put(format!("{:.0}", humidity)).await?;
-        pub_occupancy.put(occupancy.to_string()).await?;
+        pub_temp.put(format!("{:.1}", temp)).await.unwrap();
+        pub_humidity.put(format!("{:.0}", humidity)).await.unwrap();
+        pub_occupancy.put(occupancy.to_string()).await.unwrap();
 
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
 
     println!("Multi-Sensor Publisher: Done.");
-    Ok(())
 }

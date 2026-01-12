@@ -3,19 +3,20 @@ use std::time::Duration;
 use zenoh::config::Config;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     env_logger::init();
 
     println!("Opening Zenoh session...");
-    let session = zenoh::open(Config::default()).await?;
+    let session = zenoh::open(Config::default()).await.unwrap();
 
     // Simulated room state
     let state = Arc::new(Mutex::new((22.5, 45.0, 2)));
 
     println!("Declaring queryable for building/floor1/room_a/status\n");
-    let mut queryable = session
+    let queryable = session
         .declare_queryable("building/floor1/room_a/status")
-        .await?;
+        .await
+        .unwrap();
 
     println!("Room A Status Service started. Waiting for queries...\n");
 
@@ -31,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("[Status Service] Received query: {}", query.selector());
         println!("[Status Service] Sending response: {}", response);
 
-        query.reply(Ok(response.into())).await?;
+        query.reply(query.key_expr().clone(), response).await.unwrap();
 
         // Simulate changing state
         *state.lock().unwrap() = (
@@ -42,6 +43,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
-
-    Ok(())
 }

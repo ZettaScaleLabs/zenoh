@@ -2,16 +2,17 @@ use std::time::Duration;
 use zenoh::config::Config;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     env_logger::init();
 
     println!("Opening Zenoh session...");
-    let session = zenoh::open(Config::default()).await?;
+    let session = zenoh::open(Config::default()).await.unwrap();
 
     println!("Declaring publisher for building/floor1/room_a/temperature");
     let publisher = session
         .declare_publisher("building/floor1/room_a/temperature")
-        .await?;
+        .await
+        .unwrap();
 
     println!("Room A Sensor started. Publishing temperature readings...\n");
 
@@ -26,11 +27,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             message, i + 1
         );
 
-        publisher.put(message).await?;
+        publisher.put(message).await.unwrap();
 
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
 
     println!("\nRoom A Sensor: Done publishing 20 readings.");
-    Ok(())
 }

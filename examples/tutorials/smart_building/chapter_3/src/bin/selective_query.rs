@@ -1,11 +1,11 @@
 use zenoh::config::Config;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     env_logger::init();
 
     println!("Opening Zenoh session...");
-    let session = zenoh::open(Config::default()).await?;
+    let session = zenoh::open(Config::default()).await.unwrap();
 
     println!("Querying with selectors...\n");
 
@@ -13,14 +13,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[Query] Getting all room statuses with wildcard:");
     let results = session
         .get("building/floor1/*/status")
-        .await?;
+        .await
+        .unwrap();
 
     let mut count = 0;
     while let Ok(reply) = results.recv_async().await {
-        match reply.sample {
+        match reply.result() {
             Ok(sample) => {
-                let key = sample.key_expr.to_string();
-                let response = String::from_utf8_lossy(&sample.payload);
+                let key = sample.key_expr().to_string();
+                let response = sample
+                    .payload()
+                    .try_to_string()
+                    .unwrap_or_else(|_| "unknown".into());
                 println!("  {} -> {}", key, response);
                 count += 1;
             }
@@ -34,17 +38,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[Query] Querying single room:");
     let results = session
         .get("building/floor1/room_a/status")
-        .await?;
+        .await
+        .unwrap();
 
     while let Ok(reply) = results.recv_async().await {
-        match reply.sample {
+        match reply.result() {
             Ok(sample) => {
-                let response = String::from_utf8_lossy(&sample.payload);
+                let response = sample
+                    .payload()
+                    .try_to_string()
+                    .unwrap_or_else(|_| "unknown".into());
                 println!("  Response: {}", response);
             }
             Err(e) => println!("  Error: {}", e),
         }
     }
-
-    Ok(())
 }

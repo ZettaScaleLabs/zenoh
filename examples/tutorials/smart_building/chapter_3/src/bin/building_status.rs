@@ -3,11 +3,11 @@ use std::sync::{Arc, Mutex};
 use zenoh::config::Config;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     env_logger::init();
 
     println!("Opening Zenoh session...");
-    let session = zenoh::open(Config::default()).await?;
+    let session = zenoh::open(Config::default()).await.unwrap();
 
     // Room data
     let mut rooms: HashMap<String, (f32, f32)> = HashMap::new();
@@ -17,9 +17,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rooms = Arc::new(Mutex::new(rooms));
 
     println!("Declaring queryable for building/floor1/*/status\n");
-    let mut queryable = session
+    let queryable = session
         .declare_queryable("building/floor1/*/status")
-        .await?;
+        .await
+        .unwrap();
 
     println!("Building Status Service started.\n");
 
@@ -43,16 +44,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     room_name, temp, humidity
                 );
                 println!("[Status Service] Sending: {}", response);
-                query.reply(Ok(response.into())).await?;
+                query.reply(query.key_expr().clone(), response).await.unwrap();
             }
             None => {
                 let error_msg = format!("Room {} not found", room_name);
                 println!("[Status Service] Error: {}", error_msg);
-                query.reply(Err(error_msg.into())).await?;
+                query.reply_err(error_msg).await.unwrap();
             }
         }
         println!();
     }
-
-    Ok(())
 }
