@@ -1,0 +1,18 @@
+[package]
+name = "smart-building-ch4"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "sensor_with_router"
+path = "src/bin/sensor_with_router.rs"
+
+[[bin]]
+name = "monitor_with_router"
+path = "src/bin/monitor_with_router.rs"
+
+[dependencies]
+zenoh = { version = "0.11", features = ["default"] }
+tokio = { version = "1", features = ["full"] }
+rand = "0.8"
+env_logger = "0.11"

@@ -1,0 +1,24 @@
+{
+    // Zenoh Router Configuration for Tutorial
+
+    // Listen for client connections
+    listeners: {
+        default: {
+            type: "tcp",
+            bind: "127.0.0.1:7447",
+        }
+    },
+
+    // Administrative access
+    admin: {
+        auth: {
+            default_permission: "allow",
+        }
+    },
+
+    // Logging configuration
+    log: {
+        level: "info",
+        format: "compact",
+    }
+}

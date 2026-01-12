@@ -1,0 +1,12 @@
+{
+    // Zenoh Client Configuration for Tutorial
+    // Use this to connect to a Zenoh Router
+
+    // Run as client (connect to router) instead of peer-to-peer
+    mode: "client",
+
+    // Router endpoint to connect to
+    connect: {
+        endpoints: ["tcp/127.0.0.1:7447"]
+    }
+}

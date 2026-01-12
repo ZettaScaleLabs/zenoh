@@ -1,0 +1,26 @@
+[package]
+name = "smart-building-ch3"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "room_status_service"
+path = "src/bin/room_status_service.rs"
+
+[[bin]]
+name = "dashboard"
+path = "src/bin/dashboard.rs"
+
+[[bin]]
+name = "building_status"
+path = "src/bin/building_status.rs"
+
+[[bin]]
+name = "selective_query"
+path = "src/bin/selective_query.rs"
+
+[dependencies]
+zenoh = { version = "0.11", features = ["default"] }
+tokio = { version = "1", features = ["full"] }
+rand = "0.8"
+env_logger = "0.11"

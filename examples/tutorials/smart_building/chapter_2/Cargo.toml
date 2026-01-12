@@ -1,0 +1,26 @@
+[package]
+name = "smart-building-ch2"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "multi_sensor"
+path = "src/bin/multi_sensor.rs"
+
+[[bin]]
+name = "floor_monitor"
+path = "src/bin/floor_monitor.rs"
+
+[[bin]]
+name = "building_sensors"
+path = "src/bin/building_sensors.rs"
+
+[[bin]]
+name = "selective_monitor"
+path = "src/bin/selective_monitor.rs"
+
+[dependencies]
+zenoh = { version = "0.11", features = ["default"] }
+tokio = { version = "1", features = ["full"] }
+rand = "0.8"
+env_logger = "0.11"
