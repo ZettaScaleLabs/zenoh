@@ -36,24 +36,28 @@ In this chapter, you'll learn the fundamentals of Zenoh by building a simple tem
 A **session** is your connection to the Zenoh network. It's the entry point for publishing and subscribing.
 
 ```rust
-let session = zenoh::open(Default::default()).await?;
+let session = zenoh::open(Config::default()).await.unwrap();
 ```
 
 ### Publisher
 A **publisher** sends data to a specific key expression. Multiple subscribers can listen to the same key.
 
 ```rust
-let pub_temp = session.declare_publisher("building/floor1/room_a/temperature").await?;
-pub_temp.put(22.5).await?;
+let pub_temp = session.declare_publisher("building/floor1/room_a/temperature").await.unwrap();
+pub_temp.put(message).await.unwrap();
 ```
 
 ### Subscriber
 A **subscriber** listens for data published to a specific key expression.
 
 ```rust
-let mut sub = session.declare_subscriber("building/floor1/room_a/temperature").await?;
+let mut sub = session.declare_subscriber("building/floor1/room_a/temperature").await.unwrap();
 while let Ok(sample) = sub.recv_async().await {
-    println!("Received: {}", String::from_utf8_lossy(&sample.payload));
+    let temperature = sample
+        .payload()
+        .try_to_string()
+        .unwrap_or_else(|_| "unknown".into());
+    println!("Received: {}", temperature);
 }
 ```
 
@@ -84,7 +88,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-zenoh = { version = "0.11", features = ["default"] }
+zenoh = { path = "../../../../zenoh", features = ["default"] }
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -97,31 +101,34 @@ use std::time::Duration;
 use zenoh::config::Config;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     env_logger::init();
 
     println!("Opening Zenoh session...");
-    let session = zenoh::open(Config::default()).await?;
+    let session = zenoh::open(Config::default()).await.unwrap();
     
     println!("Declaring publisher for building/floor1/room_a/temperature");
     let publisher = session
         .declare_publisher("building/floor1/room_a/temperature")
-        .await?;
+        .await
+        .unwrap();
 
     println!("Room A Sensor started. Publishing temperature readings...\n");
     
     let mut temperature = 22.0;
-    loop {
+    for i in 0..20 {
         // Simulate temperature variations
         temperature += (rand::random::<f32>() - 0.5) * 0.2;
         
         let message = format!("{:.1}", temperature);
-        println!("[Room A Sensor] Publishing temperature: {}°C", message);
+        println!("[Room A Sensor] Publishing temperature: {}°C (reading #{})", message, i + 1);
         
-        publisher.put(message).await?;
+        publisher.put(message).await.unwrap();
         
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
+
+    println!("\nRoom A Sensor: Done publishing 20 readings.");
 }
 ```
 
@@ -133,25 +140,27 @@ Create `src/bin/monitor.rs`:
 use zenoh::config::Config;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     env_logger::init();
 
     println!("Opening Zenoh session...");
-    let session = zenoh::open(Config::default()).await?;
+    let session = zenoh::open(Config::default()).await.unwrap();
     
     println!("Subscribing to building/floor1/room_a/temperature\n");
     let mut subscriber = session
         .declare_subscriber("building/floor1/room_a/temperature")
-        .await?;
+        .await
+        .unwrap();
 
     println!("Monitor started. Waiting for temperature readings...\n");
 
     while let Ok(sample) = subscriber.recv_async().await {
-        let temperature = String::from_utf8_lossy(&sample.payload);
+        let temperature = sample
+            .payload()
+            .try_to_string()
+            .unwrap_or_else(|_| "unknown".into());
         println!("[Monitor] Room A Temperature: {}°C", temperature);
     }
-
-    Ok(())
 }
 ```
 
@@ -215,7 +224,7 @@ Monitor started. Waiting for temperature readings...
 ### Opening a Session
 
 ```rust
-let session = zenoh::open(Config::default()).await?;
+let session = zenoh::open(Config::default()).await.unwrap();
 ```
 
 This creates a connection to Zenoh. By default, it tries to connect to a local Zenoh instance or creates a peer-to-peer connection with other Zenoh instances on the network.
@@ -225,7 +234,8 @@ This creates a connection to Zenoh. By default, it tries to connect to a local Z
 ```rust
 let publisher = session
     .declare_publisher("building/floor1/room_a/temperature")
-    .await?;
+    .await
+    .unwrap();
 ```
 
 This announces to Zenoh that this session will publish data under the key `building/floor1/room_a/temperature`.
@@ -233,7 +243,7 @@ This announces to Zenoh that this session will publish data under the key `build
 ### Publishing Data
 
 ```rust
-publisher.put(message).await?;
+publisher.put(message).await.unwrap();
 ```
 
 This sends a message to all subscribers listening to this key.
@@ -243,7 +253,8 @@ This sends a message to all subscribers listening to this key.
 ```rust
 let mut subscriber = session
     .declare_subscriber("building/floor1/room_a/temperature")
-    .await?;
+    .await
+    .unwrap();
 ```
 
 This announces interest in receiving data from the specified key.
@@ -252,7 +263,10 @@ This announces interest in receiving data from the specified key.
 
 ```rust
 while let Ok(sample) = subscriber.recv_async().await {
-    let temperature = String::from_utf8_lossy(&sample.payload);
+    let temperature = sample
+        .payload()
+        .try_to_string()
+        .unwrap_or_else(|_| "unknown".into());
     println!("[Monitor] Room A Temperature: {}°C", temperature);
 }
 ```

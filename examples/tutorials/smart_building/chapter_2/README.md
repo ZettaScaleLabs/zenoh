@@ -73,23 +73,26 @@ use std::time::Duration;
 use zenoh::config::Config;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     env_logger::init();
 
     println!("Opening Zenoh session...");
-    let session = zenoh::open(Config::default()).await?;
+    let session = zenoh::open(Config::default()).await.unwrap();
 
     // Declare publishers for different sensors in Room A
     println!("Declaring publishers...");
     let pub_temp = session
         .declare_publisher("building/floor1/room_a/temperature")
-        .await?;
+        .await
+        .unwrap();
     let pub_humidity = session
         .declare_publisher("building/floor1/room_a/humidity")
-        .await?;
+        .await
+        .unwrap();
     let pub_occupancy = session
         .declare_publisher("building/floor1/room_a/occupancy")
-        .await?;
+        .await
+        .unwrap();
 
     println!("Multi-Sensor Publisher started.\n");
 
@@ -107,15 +110,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  Humidity: {:.0}%", humidity.max(0.0).min(100.0));
         println!("  Occupancy: {} people\n", occupancy);
 
-        pub_temp.put(format!("{:.1}", temp)).await?;
-        pub_humidity.put(format!("{:.0}", humidity)).await?;
-        pub_occupancy.put(occupancy.to_string()).await?;
+        pub_temp.put(format!("{:.1}", temp)).await.unwrap();
+        pub_humidity.put(format!("{:.0}", humidity)).await.unwrap();
+        pub_occupancy.put(occupancy.to_string()).await.unwrap();
 
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
 
     println!("Multi-Sensor Publisher: Done.");
-    Ok(())
 }
 ```
 
@@ -127,24 +129,28 @@ Create `src/bin/floor_monitor.rs` - subscribes to all Room A sensors:
 use zenoh::config::Config;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     env_logger::init();
 
     println!("Opening Zenoh session...");
-    let session = zenoh::open(Config::default()).await?;
+    let session = zenoh::open(Config::default()).await.unwrap();
 
     // Subscribe to ALL Room A sensors with wildcard
     println!("Subscribing to building/floor1/room_a/* (all sensors)\n");
     let mut subscriber = session
         .declare_subscriber("building/floor1/room_a/*")
-        .await?;
+        .await
+        .unwrap();
 
     println!("Floor Monitor started. Listening to all Room A sensors...\n");
 
     let mut count = 0;
     while let Ok(sample) = subscriber.recv_async().await {
-        let key = sample.key_expr.to_string();
-        let value = String::from_utf8_lossy(&sample.payload);
+        let key = sample.key_expr().to_string();
+        let value = sample
+            .payload()
+            .try_to_string()
+            .unwrap_or_else(|_| "unknown".into());
 
         // Extract sensor type from key (last segment)
         let sensor_type = key.split('/').last().unwrap_or("unknown");
@@ -163,8 +169,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
     }
-
-    Ok(())
 }
 ```
 
@@ -177,35 +181,41 @@ use std::time::Duration;
 use zenoh::config::Config;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     env_logger::init();
 
     println!("Opening Zenoh session...");
-    let session = zenoh::open(Config::default()).await?;
+    let session = zenoh::open(Config::default()).await.unwrap();
 
     // Publishers for Room A
     let pub_a_temp = session
         .declare_publisher("building/floor1/room_a/temperature")
-        .await?;
+        .await
+        .unwrap();
     let pub_a_humidity = session
         .declare_publisher("building/floor1/room_a/humidity")
-        .await?;
+        .await
+        .unwrap();
 
     // Publishers for Room B
     let pub_b_temp = session
         .declare_publisher("building/floor1/room_b/temperature")
-        .await?;
+        .await
+        .unwrap();
     let pub_b_humidity = session
         .declare_publisher("building/floor1/room_b/humidity")
-        .await?;
+        .await
+        .unwrap();
 
     // Publishers for Room C (Floor 2)
     let pub_c_temp = session
         .declare_publisher("building/floor2/room_c/temperature")
-        .await?;
+        .await
+        .unwrap();
     let pub_c_humidity = session
         .declare_publisher("building/floor2/room_c/humidity")
-        .await?;
+        .await
+        .unwrap();
 
     println!("Building Sensors started (3 rooms, 2 sensors each).\n");
 
@@ -220,22 +230,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("[Building Sensors] Publishing round #{}", i + 1);
 
-        pub_a_temp.put(format!("{:.1}", a_temp)).await?;
-        pub_a_humidity.put("42").await?;
+        pub_a_temp.put(format!("{:.1}", a_temp)).await.unwrap();
+        pub_a_humidity.put("42").await.unwrap();
 
-        pub_b_temp.put(format!("{:.1}", b_temp)).await?;
-        pub_b_humidity.put("45").await?;
+        pub_b_temp.put(format!("{:.1}", b_temp)).await.unwrap();
+        pub_b_humidity.put("45").await.unwrap();
 
-        pub_c_temp.put(format!("{:.1}", c_temp)).await?;
-        pub_c_humidity.put("48").await?;
+        pub_c_temp.put(format!("{:.1}", c_temp)).await.unwrap();
+        pub_c_humidity.put("48").await.unwrap();
 
-        println!("  Room A: {:.1}°C, Room B: {:.1}°C, Room C: {:.1}°C\n", a_temp, b_temp, c_temp);
+        println!(
+            "  Room A: {:.1}°C, Room B: {:.1}°C, Room C: {:.1}°C\n",
+            a_temp, b_temp, c_temp
+        );
 
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
 
     println!("Building Sensors: Done.");
-    Ok(())
 }
 ```
 
@@ -247,24 +259,28 @@ Create `src/bin/selective_monitor.rs` - watch only temperatures:
 use zenoh::config::Config;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     env_logger::init();
 
     println!("Opening Zenoh session...");
-    let session = zenoh::open(Config::default()).await?;
+    let session = zenoh::open(Config::default()).await.unwrap();
 
     // Subscribe to ALL temperatures across the building
     println!("Subscribing to building/*/*/temperature (all temps)\n");
     let mut subscriber = session
         .declare_subscriber("building/*/*/temperature")
-        .await?;
+        .await
+        .unwrap();
 
     println!("Temperature Monitor started.\n");
 
     let mut count = 0;
     while let Ok(sample) = subscriber.recv_async().await {
-        let key = sample.key_expr.to_string();
-        let value = String::from_utf8_lossy(&sample.payload);
+        let key = sample.key_expr().to_string();
+        let value = sample
+            .payload()
+            .try_to_string()
+            .unwrap_or_else(|_| "unknown".into());
 
         println!("[Temp Monitor] {}: {}°C", key, value);
 
@@ -274,8 +290,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
     }
-
-    Ok(())
 }
 ```
 
@@ -383,7 +397,7 @@ Matches:
 ### Exercise 1: Watch Entire Building
 Create a subscriber that watches ALL data across the building:
 ```rust
-let mut subscriber = session.declare_subscriber("building/**").await?;
+let mut subscriber = session.declare_subscriber("building/**").await.unwrap();
 ```
 
 ### Exercise 2: Temperature Threshold Alert

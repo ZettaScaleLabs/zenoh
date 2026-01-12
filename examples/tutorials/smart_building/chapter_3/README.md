@@ -61,11 +61,12 @@ A **Queryable** is a service that listens for queries on a specific key and send
 ```rust
 let mut queryable = session
     .declare_queryable("building/floor1/room_a/status")
-    .await?;
+    .await
+    .unwrap();
 
 while let Ok(query) = queryable.recv_async().await {
     let response = "{ temperature: 22.5, humidity: 45 }";
-    query.reply(Ok(response.into())).await?;
+    query.reply(query.key_expr().clone(), response).await.unwrap();
 }
 ```
 
@@ -76,11 +77,20 @@ A **Query** (via `.get()`) sends a request and waits for replies.
 ```rust
 let results = session
     .get("building/floor1/room_a/status")
-    .await?;
+    .await
+    .unwrap();
 
 while let Ok(reply) = results.recv_async().await {
-    let sample = reply.sample?;
-    println!("Response: {}", String::from_utf8_lossy(&sample.payload));
+    match reply.result() {
+        Ok(sample) => {
+            let payload = sample
+                .payload()
+                .try_to_string()
+                .unwrap_or_else(|_| "unknown".into());
+            println!("Response: {}", payload);
+        }
+        Err(e) => println!("Error: {}", e),
+    }
 }
 ```
 
@@ -92,7 +102,8 @@ A **Selector** allows querying with parameters or filters.
 // Query with selector
 let results = session
     .get("building/floor1/room_a/status?type=detailed")
-    .await?;
+    .await
+    .unwrap();
 ```
 
 ## Step-by-Step Guide
@@ -107,19 +118,20 @@ use zenoh::config::Config;
 use std::sync::{Arc, Mutex};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     env_logger::init();
 
     println!("Opening Zenoh session...");
-    let session = zenoh::open(Config::default()).await?;
+    let session = zenoh::open(Config::default()).await.unwrap();
 
     // Simulated room state
     let state = Arc::new(Mutex::new((22.5, 45.0, 2)));
 
     println!("Declaring queryable for building/floor1/room_a/status\n");
-    let mut queryable = session
+    let queryable = session
         .declare_queryable("building/floor1/room_a/status")
-        .await?;
+        .await
+        .unwrap();
 
     println!("Room A Status Service started. Waiting for queries...\n");
 
@@ -135,7 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("[Status Service] Received query: {}", query.selector());
         println!("[Status Service] Sending response: {}", response);
 
-        query.reply(Ok(response.into())).await?;
+        query.reply(query.key_expr().clone(), response).await.unwrap();
 
         // Simulate changing state
         *state.lock().unwrap() = (
@@ -144,8 +156,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             (rand::random::<f32>() * 5.0) as i32,
         );
     }
-
-    Ok(())
 }
 ```
 
@@ -157,11 +167,11 @@ Create `src/bin/dashboard.rs`:
 use zenoh::config::Config;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     env_logger::init();
 
     println!("Opening Zenoh session...");
-    let session = zenoh::open(Config::default()).await?;
+    let session = zenoh::open(Config::default()).await.unwrap();
 
     println!("Dashboard ready. Querying room status...\n");
 
@@ -171,13 +181,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let results = session
             .get("building/floor1/room_a/status")
-            .await?;
+            .await
+            .unwrap();
 
         let mut found = false;
         while let Ok(reply) = results.recv_async().await {
-            match reply.sample {
+            match reply.result() {
                 Ok(sample) => {
-                    let response = String::from_utf8_lossy(&sample.payload);
+                    let response = sample
+                        .payload()
+                        .try_to_string()
+                        .unwrap_or_else(|_| "unknown".into());
                     println!("[Dashboard] Response: {}\n", response);
                     found = true;
                 }
@@ -195,7 +209,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("Dashboard: Done with 5 queries.");
-    Ok(())
 }
 ```
 
@@ -209,11 +222,11 @@ use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     env_logger::init();
 
     println!("Opening Zenoh session...");
-    let session = zenoh::open(Config::default()).await?;
+    let session = zenoh::open(Config::default()).await.unwrap();
 
     // Room data
     let mut rooms: HashMap<String, (f32, f32)> = HashMap::new();
@@ -223,9 +236,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rooms = Arc::new(Mutex::new(rooms));
 
     println!("Declaring queryable for building/floor1/*/status\n");
-    let mut queryable = session
+    let queryable = session
         .declare_queryable("building/floor1/*/status")
-        .await?;
+        .await
+        .unwrap();
 
     println!("Building Status Service started.\n");
 
@@ -249,18 +263,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     room_name, temp, humidity
                 );
                 println!("[Status Service] Sending: {}", response);
-                query.reply(Ok(response.into())).await?;
+                query.reply(query.key_expr().clone(), response).await.unwrap();
             }
             None => {
                 let error_msg = format!("Room {} not found", room_name);
                 println!("[Status Service] Error: {}", error_msg);
-                query.reply(Err(error_msg.into())).await?;
+                query.reply_err(error_msg).await.unwrap();
             }
         }
         println!();
     }
-
-    Ok(())
 }
 ```
 
@@ -272,11 +284,11 @@ Create `src/bin/selective_query.rs`:
 use zenoh::config::Config;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     env_logger::init();
 
     println!("Opening Zenoh session...");
-    let session = zenoh::open(Config::default()).await?;
+    let session = zenoh::open(Config::default()).await.unwrap();
 
     println!("Querying with selectors...\n");
 
@@ -284,14 +296,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[Query] Getting all room statuses with wildcard:");
     let results = session
         .get("building/floor1/*/status")
-        .await?;
+        .await
+        .unwrap();
 
     let mut count = 0;
     while let Ok(reply) = results.recv_async().await {
-        match reply.sample {
+        match reply.result() {
             Ok(sample) => {
-                let key = sample.key_expr.to_string();
-                let response = String::from_utf8_lossy(&sample.payload);
+                let key = sample.key_expr().to_string();
+                let response = sample
+                    .payload()
+                    .try_to_string()
+                    .unwrap_or_else(|_| "unknown".into());
                 println!("  {} -> {}", key, response);
                 count += 1;
             }
@@ -305,19 +321,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[Query] Querying single room:");
     let results = session
         .get("building/floor1/room_a/status")
-        .await?;
+        .await
+        .unwrap();
 
     while let Ok(reply) = results.recv_async().await {
-        match reply.sample {
+        match reply.result() {
             Ok(sample) => {
-                let response = String::from_utf8_lossy(&sample.payload);
+                let response = sample
+                    .payload()
+                    .try_to_string()
+                    .unwrap_or_else(|_| "unknown".into());
                 println!("  Response: {}", response);
             }
             Err(e) => println!("  Error: {}", e),
         }
     }
-
-    Ok(())
 }
 ```
 
@@ -399,11 +417,11 @@ A queryable can have **multiple instances** responding to the same query:
 
 ```rust
 // Multiple services can declare same queryable
-let mut queryable1 = session.declare_queryable("building/floor1/room_a/status").await?;
-let mut queryable2 = session.declare_queryable("building/floor1/room_a/status").await?;
+let mut queryable1 = session.declare_queryable("building/floor1/room_a/status").await.unwrap();
+let mut queryable2 = session.declare_queryable("building/floor1/room_a/status").await.unwrap();
 
 // A query will receive replies from both
-let results = session.get("building/floor1/room_a/status").await?;
+let results = session.get("building/floor1/room_a/status").await.unwrap();
 // This will contain 2 replies
 ```
 
@@ -415,7 +433,8 @@ By default, a query waits a short time for replies. You can customize:
 let results = session
     .get("building/floor1/room_a/status")
     .timeout(std::time::Duration::from_millis(500))
-    .await?;
+    .await
+    .unwrap();
 ```
 
 ## Exercises
