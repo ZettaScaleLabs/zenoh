@@ -24,7 +24,7 @@ name = "selective_query"
 path = "src/bin/selective_query.rs"
 
 [dependencies]
-zenoh = { path = "../../../../zenoh", features = ["default"] }
+zenoh = { version = "1.7.2", features = ["default"] }
 tokio = { version = "1", features = ["full"] }
 rand = "0.8"
 env_logger = "0.11"

@@ -9,7 +9,7 @@ async fn main() {
 
     // Subscribe to ALL Room A sensors with wildcard
     println!("Subscribing to building/floor1/room_a/* (all sensors)\n");
-    let mut subscriber = session
+    let subscriber = session
         .declare_subscriber("building/floor1/room_a/*")
         .await
         .unwrap();

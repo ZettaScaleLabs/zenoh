@@ -9,7 +9,7 @@ async fn main() {
 
     // Subscribe to ALL temperatures across the building
     println!("Subscribing to building/*/*/temperature (all temps)\n");
-    let mut subscriber = session
+    let subscriber = session
         .declare_subscriber("building/*/*/temperature")
         .await
         .unwrap();
