@@ -68,13 +68,20 @@ Example: `building/floor1/room_a/temperature`
 
 ## Step-by-Step Guide
 
-### Step 1: Create a New Project
+### Step 1: Project Structure
+
+The project is already initialized. If you're starting fresh, use:
 
 ```bash
-mkdir -p chapter_1
-cd chapter_1
 cargo init --name smart-building-ch1
-cd smart-building-ch1
+```
+
+This creates a new Rust project in your current directory with the structure:
+```
+smart-building-ch1/
+├── Cargo.toml
+└── src/
+    └── main.rs
 ```
 
 ### Step 2: Add Zenoh Dependency
