@@ -51,11 +51,15 @@ This repository contains the following elements:
 
   Zenoh usage examples. These examples have a double purpose: they not only demonstrate writing Zenoh applications in Rust but also serve as a set of tools for experimenting with and testing Zenoh functionality.
 
+  **📚 [START WITH THE TUTORIALS →](examples/tutorials/START_HERE.md)** - Learn Zenoh step-by-step by building a Smart Building monitoring system!
+
 # Documentation
 
 * [Docs.rs for Zenoh](https://docs.rs/zenoh/latest/zenoh/)
 
 * [Docs.rs for Zenoh-ext](https://docs.rs/zenoh-ext/latest/zenoh_ext/)
+
+* **[📚 Comprehensive Tutorials](examples/tutorials/README.md)** - Complete learning path with domain adaptation guides (Robotics, IoT, Market Data, Manufacturing)
 
 # Build and run
 
