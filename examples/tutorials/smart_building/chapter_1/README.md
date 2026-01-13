@@ -68,15 +68,14 @@ Example: `building/floor1/room_a/temperature`
 
 ## Step-by-Step Guide
 
-### Step 1: Project Structure
-
-The project is already initialized. If you're starting fresh, use:
+### Step 1: Create a New Project
 
 ```bash
 cargo init --name smart-building-ch1
+cd smart-building-ch1
 ```
 
-This creates a new Rust project in your current directory with the structure:
+This creates a new Rust project with the following structure:
 ```
 smart-building-ch1/
 ├── Cargo.toml
