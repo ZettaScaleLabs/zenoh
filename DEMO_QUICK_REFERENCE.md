@@ -125,7 +125,7 @@ cat examples/tutorials/DOMAIN_ADAPTATION_ROBOTICS.md | head -80
 
 ## Opening Statement
 
-> "We built a comprehensive tutorial for Zenoh that addresses GitHub issue #2243: 'Needs a really good tutorial'. This is 5 phases of work, including 9 chapters, 30+ working programs, and 4 domain adaptation guides that help users apply patterns to their specific industry. Let me show you how it works..."
+> "We built a comprehensive tutorial for Zenoh addressing the need for better documentation. This is 5 phases of work, including 9 chapters, 30+ working programs, and 4 domain adaptation guides that help users apply patterns to their specific industry. Let me show you how it works..."
 
 ## Closing Statement
 

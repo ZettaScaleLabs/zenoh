@@ -37,7 +37,7 @@ cat README.md | head -50
 ```
 
 **Talking Points**:
-- Addresses GitHub Issue #2243 ("Needs a really good tutorial")
+- Addresses documented need for comprehensive Zenoh tutorial
 - 5 phases: framework → code → testing → advanced → integration
 - Smart Building domain as teaching vehicle
 - 9 chapters, 3.5-4 hours to learn
@@ -122,7 +122,7 @@ wc -w examples/tutorials/*.md examples/tutorials/smart_building/*.md
 - Zenoh has powerful patterns but scattered documentation
 - New users need comprehensive, progressive tutorial
 - No clear path from "Hello World" to production
-- GitHub issue #2243: "Needs a really good tutorial"
+- Community feedback: Need for comprehensive tutorial
 
 ### Solution
 - Complete 9-chapter tutorial using relatable Smart Building domain

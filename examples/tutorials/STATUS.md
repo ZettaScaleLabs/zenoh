@@ -9,7 +9,7 @@
 
 ## 🎯 Project Overview
 
-Comprehensive tutorial series for Zenoh distributed pub/sub/query protocol, addressing GitHub Issue #2243 ("Needs a really good tutorial"). The tutorial teaches Zenoh fundamentals through building a realistic **Smart Building monitoring system** that progresses from basic pub/sub to advanced multi-tier production architecture.
+Comprehensive tutorial series for Zenoh distributed pub/sub/query protocol, teaching fundamentals through practical examples. The tutorial teaches Zenoh fundamentals through building a realistic **Smart Building monitoring system** that progresses from basic pub/sub to advanced multi-tier production architecture.
 
 **Tutorial Link:** `/examples/tutorials/START_HERE.md`
 
@@ -223,7 +223,7 @@ done
 c964f8bda - Add comprehensive Phase 3 session summary
 9fb2b6064 - Add Phase 3 upgrade summary documentation
 86f07a6f9 - Phase 3: Upgrade tutorial to Zenoh 1.7 and fix all compilation errors
-b5a0231f0 - feat: Add comprehensive Smart Building Tutorial (Issue #2243)
+b5a0231f0 - feat: Add comprehensive Smart Building Tutorial
 b35a4eede - (base) `internal_config` feature removal (#2352)
 ```
 

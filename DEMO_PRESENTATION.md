@@ -10,7 +10,7 @@
 ## Slide 1: Title & Overview (30 seconds)
 
 ### Title
-**Comprehensive Zenoh Tutorial: Addressing GitHub Issue #2243**
+**Comprehensive Zenoh Tutorial: A Complete Learning Guide**
 
 ### Key Points
 - Problem: Scattered, minimal Zenoh documentation
@@ -22,7 +22,7 @@
 
 ## Slide 2: The Problem (1 minute)
 
-### GitHub Issue #2243: "Needs a really good tutorial"
+### The Problem: "Zenoh Needs a Really Good Tutorial"
 
 **Challenge**:
 - Zenoh has powerful features but documentation is scattered
