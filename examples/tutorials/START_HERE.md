@@ -109,14 +109,36 @@ tutorials/
     │   ├── client_config.json5
     │   └── src/bin/ (examples)
     │
-    ├── chapter_5/                     # 🟡 Multi-Tier (planned)
-    ├── chapter_6/                     # 🟡 Observability (planned)
-    ├── chapter_7/                     # 🟡 Storage (planned)
-    ├── chapter_8/                     # 🟡 Device Mgmt (planned)
-    ├── chapter_9/                     # 🟡 Troubleshooting (planned)
+    ├── chapter_5/                     # ✅ Multi-Tier (complete)
+    ├── chapter_6/                     # 📖 Observability (documented)
+    ├── chapter_7/                     # 📖 Storage (documented)
+    ├── chapter_8/                     # 📖 Device Mgmt (documented)
+    ├── chapter_9/                     # 📖 Troubleshooting (documented)
     │
-    └── shared_lib/                    # 🟡 Shared utilities (planned)
+    └── shared_lib/                    # 🟡 Shared utilities (future)
 ```
+
+## Ready to Apply This to Your Domain?
+
+Once you complete the Smart Building tutorial, check out these **Domain Adaptation Guides** to learn how to apply the same patterns to your specific use case:
+
+| Domain | Best For | Time |
+|--------|----------|------|
+| **[Robotics](./DOMAIN_ADAPTATION_ROBOTICS.md)** | Multi-robot coordination, autonomous teams | 1-2 days |
+| **[IoT Sensors](./DOMAIN_ADAPTATION_IOT.md)** | Distributed sensor networks, edge gateways | 2-3 days |
+| **[Market Data](./DOMAIN_ADAPTATION_MARKET.md)** | Real-time financial feeds, high-frequency trading | 3-5 days |
+| **[Manufacturing](./DOMAIN_ADAPTATION_MANUFACTURING.md)** | Factory automation, OEE, predictive maintenance | 2-3 days |
+
+👉 **[See all domain guides →](./DOMAIN_ADAPTATIONS.md)**
+
+Each guide includes:
+- How Smart Building patterns apply to your domain
+- Architecture examples specific to your industry
+- Working code you can copy and adapt
+- Exercises to practice the patterns
+- Common patterns and best practices
+
+---
 
 ## What's Included
 

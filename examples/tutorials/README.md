@@ -217,11 +217,49 @@ See [Chapter 4: Router Configuration](./smart_building/chapter_4/README.md#route
 
 ---
 
+## Domain-Specific Adaptation Guides
+
+After completing the Smart Building tutorial, learn how to apply the same patterns to your specific domain:
+
+### [📚 Domain Adaptations Index](./DOMAIN_ADAPTATIONS.md)
+
+Complete guide to adapting Zenoh patterns for different industries and applications.
+
+### Available Domains
+
+| Domain | Best For | Complexity | Time to Adapt |
+|--------|----------|-----------|---------------|
+| **[Robotics Fleet Management](./DOMAIN_ADAPTATION_ROBOTICS.md)** | Multi-robot coordination, autonomous teams | Medium | 1-2 days |
+| **[IoT Sensor Networks](./DOMAIN_ADAPTATION_IOT.md)** | Distributed sensors, edge gateways, cloud integration | Medium-High | 2-3 days |
+| **[Market Data Distribution](./DOMAIN_ADAPTATION_MARKET.md)** | Real-time trading, financial feeds, high-frequency | High | 3-5 days |
+| **[Manufacturing Systems](./DOMAIN_ADAPTATION_MANUFACTURING.md)** | Factory automation, OEE, predictive maintenance | Medium | 2-3 days |
+
+### How Domain Guides Work
+
+Each domain guide includes:
+1. **Quick Mapping** showing how Smart Building concepts apply to your domain
+2. **Architecture Pattern** with concrete system layout
+3. **Key Expression Hierarchy** for organizing your data
+4. **Adapted Examples** for each tutorial chapter
+5. **Working Code** you can copy and modify
+6. **Exercises** to practice the patterns
+7. **Common Patterns** and best practices for the domain
+
+### Quick Start
+
+1. ✅ Complete the Smart Building tutorial (1.5-2 hours)
+2. 📖 Pick your domain from the list above
+3. 💻 Follow the adapted examples
+4. 🔨 Build your application using the provided templates
+5. 🚀 Deploy and scale!
+
+---
+
 ## Next Steps After Tutorials
 
 Once you complete the tutorials:
 1. **Read the [Zenoh API Docs](https://docs.rs/zenoh/)** for comprehensive reference
-2. **Explore [Domain-Specific Guides](./domain_guides/)** for adapting patterns to your use case
+2. **Follow a [Domain Adaptation Guide](./DOMAIN_ADAPTATIONS.md)** for your specific use case
 3. **Join the [Zenoh Community](https://github.com/eclipse-zenoh/roadmap)** for questions and discussions
 4. **Build Your Application** using the patterns you've learned
 

@@ -1,0 +1,7 @@
+Opening Zenoh session...
+Declaring publisher for building/floor1/room_a/temperature
+Room A Sensor started. Publishing temperature readings...
+
+[Room A Sensor] Publishing temperature: 22.0°C (reading #1)
+[Room A Sensor] Publishing temperature: 22.0°C (reading #2)
+[Room A Sensor] Publishing temperature: 22.0°C (reading #3)
