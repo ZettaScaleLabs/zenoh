@@ -136,7 +136,7 @@ name = "sensor_with_storage"
 path = "src/bin/sensor_with_storage.rs"
 
 [dependencies]
-zenoh = { path = "../../../../zenoh", features = ["default"] }
+zenoh = { version = "1.7.2", features = ["default"] }
 tokio = { version = "1", features = ["full"] }
 serde_json = "1.0"
 chrono = "0.4"

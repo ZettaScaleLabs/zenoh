@@ -150,7 +150,7 @@ name = "health_monitor"
 path = "src/bin/health_monitor.rs"
 
 [dependencies]
-zenoh = { path = "../../../../zenoh", features = ["default"] }
+zenoh = { version = "1.7.2", features = ["default"] }
 tokio = { version = "1", features = ["full"] }
 serde_json = "1.0"
 chrono = "0.4"

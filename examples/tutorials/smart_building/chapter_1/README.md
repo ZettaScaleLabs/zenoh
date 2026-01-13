@@ -51,8 +51,8 @@ pub_temp.put(message).await.unwrap();
 A **subscriber** listens for data published to a specific key expression.
 
 ```rust
-let mut sub = session.declare_subscriber("building/floor1/room_a/temperature").await.unwrap();
-while let Ok(sample) = sub.recv_async().await {
+let subscriber = session.declare_subscriber("building/floor1/room_a/temperature").await.unwrap();
+while let Ok(sample) = subscriber.recv_async().await {
     let temperature = sample
         .payload()
         .try_to_string()
@@ -88,8 +88,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-zenoh = { path = "../../../../zenoh", features = ["default"] }
+zenoh = { version = "1.7.2", features = ["default"] }
 tokio = { version = "1", features = ["full"] }
+rand = "0.8"
+env_logger = "0.11"
 ```
 
 ### Step 3: Create the Publisher (Sensor)
@@ -147,7 +149,7 @@ async fn main() {
     let session = zenoh::open(Config::default()).await.unwrap();
     
     println!("Subscribing to building/floor1/room_a/temperature\n");
-    let mut subscriber = session
+    let subscriber = session
         .declare_subscriber("building/floor1/room_a/temperature")
         .await
         .unwrap();
@@ -251,7 +253,7 @@ This sends a message to all subscribers listening to this key.
 ### Declaring a Subscriber
 
 ```rust
-let mut subscriber = session
+let subscriber = session
     .declare_subscriber("building/floor1/room_a/temperature")
     .await
     .unwrap();
