@@ -71,8 +71,9 @@ Example: `building/floor1/room_a/temperature`
 ### Step 1: Create a New Project
 
 ```bash
-cargo init --name smart-building-ch1
+mkdir smart-building-ch1
 cd smart-building-ch1
+cargo init --name smart-building-ch1
 ```
 
 This creates a new Rust project with the following structure:
