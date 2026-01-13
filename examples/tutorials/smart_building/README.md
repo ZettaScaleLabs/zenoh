@@ -515,7 +515,7 @@ A: Each chapter has a troubleshooting section. Also check the [Zenoh documentati
 A: 20-30 minutes depending on your pace and Rust familiarity.
 
 **Q: Can I adapt this to my use case?**
-A: Absolutely! See the [Domain Adaptation Guide](../domain_guides/) for patterns adapted to robotics, IoT sensors, financial data, and more.
+A: Absolutely! See the [Domain Adaptation Guides](../DOMAIN_ADAPTATIONS.md) for patterns adapted to robotics, IoT sensors, financial data, and more.
 
 ---
 

@@ -207,13 +207,13 @@ After completing Chapter 5, running the full demo will show:
 ## Troubleshooting
 
 ### Build Issues
-See [Chapter 1: Troubleshooting](./smart_building/chapter_1/README.md#troubleshooting)
+See [Chapter 1](./smart_building/chapter_1/README.md) - Troubleshooting section
 
 ### Runtime Issues
-See [Chapter 9: Debugging Guide](./smart_building/chapter_9/README.md)
+See [Chapter 9](./smart_building/chapter_9/README.md) - Debugging Guide
 
 ### Zenoh Router Not Connecting
-See [Chapter 4: Router Configuration](./smart_building/chapter_4/README.md#router-setup)
+See [Chapter 4](./smart_building/chapter_4/README.md) - Router Configuration section
 
 ---
 
