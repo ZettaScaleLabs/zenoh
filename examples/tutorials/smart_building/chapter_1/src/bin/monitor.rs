@@ -8,7 +8,7 @@ async fn main() {
     let session = zenoh::open(Config::default()).await.unwrap();
 
     println!("Subscribing to building/floor1/room_a/temperature\n");
-    let mut subscriber = session
+    let subscriber = session
         .declare_subscriber("building/floor1/room_a/temperature")
         .await
         .unwrap();
