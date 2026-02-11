@@ -14,5 +14,6 @@
 pub(crate) mod transport;
 
 mod link;
+mod pooled_buffer;
 mod rx;
 mod tx;

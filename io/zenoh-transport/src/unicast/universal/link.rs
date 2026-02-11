@@ -26,9 +26,12 @@ use zenoh_protocol::transport::{KeepAlive, TransportMessage};
 use zenoh_result::{zerror, ZResult};
 #[cfg(feature = "unstable")]
 use zenoh_sync::{event, Notifier, Waiter};
-use zenoh_sync::{RecyclingObject, RecyclingObjectPool};
+use zenoh_sync::{LifoQueue, RecyclingObject, RecyclingObjectPool};
 #[cfg(feature = "uring")]
 use zenoh_uring::reader::{FragmentedBatch, RxBuffer};
+
+#[cfg(feature = "uring")]
+use super::pooled_buffer::PooledBuffer;
 
 use super::transport::TransportUnicastUniversal;
 use crate::{
@@ -436,6 +439,16 @@ async fn rx_task_uring(
 
     let pool = RecyclingObjectPool::new(n, move || vec![0_u8; mtu].into_boxed_slice());
 
+    // Create a pool for defragmented buffers (larger than MTU for fragmented messages)
+    // Maximum defragmented message size is typically 8MB or similar
+    let max_defrag_size = 16 * 1024 * 1024; // 16MB max
+    let defrag_pool_size = 16; // Keep 16 large buffers in pool
+    let defrag_pool = std::sync::Arc::new(LifoQueue::new(defrag_pool_size));
+    // Pre-allocate buffers in the pool
+    for _ in 0..defrag_pool_size {
+        defrag_pool.push(Vec::with_capacity(max_defrag_size));
+    }
+
     let l = Link::new_unicast(
         &link.link,
         link.config.priorities.clone(),
@@ -448,6 +461,7 @@ async fn rx_task_uring(
     let mut uring_read_task = {
         match link.link.is_streamed() {
             true => {
+                let defrag_pool = defrag_pool.clone();
                 let ring_cb = move |data: FragmentedBatch| {
                     let mut batch_config = batch_config;
                     batch_config.is_streamed = false;
@@ -460,8 +474,10 @@ async fn rx_task_uring(
                         )
                         .map_err(|_| zerror!("Error constructing slice...."))?,
                         None => {
-                            let contagious_data: Vec<u8> = data.iter().copied().collect();
-                            std::sync::Arc::new(contagious_data).into()
+                            // Use pooled buffer with bulk memcpy to eliminate allocation overhead
+                            // - Original: Vec::from_iter allocation (33.71% CPU)
+                            let pooled_buf = PooledBuffer::from_pool_bulk_copy(&defrag_pool, &data);
+                            std::sync::Arc::new(pooled_buf).into()
                         }
                     };
 

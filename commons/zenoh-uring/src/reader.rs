@@ -210,6 +210,42 @@ impl FragmentedBatch {
     pub fn size(&self) -> usize {
         self.size
     }
+
+    /// Efficiently copy fragmented data into a contiguous buffer using bulk memcpy.
+    ///
+    /// This is much faster than using iter().copied().collect() because it:
+    /// - Uses optimized memcpy for each chunk instead of byte-by-byte copying
+    /// - Avoids iterator overhead
+    /// - Minimizes bounds checks
+    pub fn copy_to_slice(&self, dest: &mut [u8]) {
+        assert!(dest.len() >= self.size, "Destination buffer too small");
+
+        let mut offset = 0;
+        let mut remaining = self.size;
+        let mut skip = self.data_offset;
+
+        for buffer in &self.buffers {
+            let buf_slice = &buffer[..];
+
+            if skip >= buf_slice.len() {
+                skip -= buf_slice.len();
+                continue;
+            }
+
+            let src = &buf_slice[skip..];
+            let to_copy = src.len().min(remaining);
+
+            dest[offset..offset + to_copy].copy_from_slice(&src[..to_copy]);
+
+            offset += to_copy;
+            remaining -= to_copy;
+            skip = 0;
+
+            if remaining == 0 {
+                break;
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
