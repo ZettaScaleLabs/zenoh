@@ -232,18 +232,21 @@ impl IRuntime for RuntimeState {
         let ts = match &self.hlc {
             Some(hlc) => hlc.new_timestamp(),
             None => {
-                // TODO: instead of using system time, HLC should be initialized in this case
+                // HLC not configured; fall back to system time. Ordering guarantees across
+                // nodes do not hold in this configuration.
                 use std::time::{SystemTime, UNIX_EPOCH};
-                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().into();
-                uhlc::Timestamp::new(now, self.zid.into())
+                let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH) else {
+                    return Vec::new();
+                };
+                uhlc::Timestamp::new(duration.into(), self.zid.into())
             }
         };
 
         use zenoh_codec::{WCodec, Zenoh080};
         let mut buf = Vec::new();
-        Zenoh080
-            .write(&mut buf, &ts)
-            .expect("Failed to serialize timestamp");
+        if Zenoh080.write(&mut buf, &ts).is_err() {
+            return Vec::new();
+        }
         buf
     }
 
@@ -806,6 +809,8 @@ impl RuntimeBuilder {
 
 #[derive(Clone)]
 pub struct Runtime {
+    // pub(crate) to allow DynamicRuntime construction in adminspace without going through
+    // the IRuntime trait, which doesn't expose Arc<RuntimeState> directly.
     pub(crate) state: Arc<RuntimeState>,
 }
 

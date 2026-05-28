@@ -368,7 +368,7 @@ impl Sample {
         body: &mut PushBody,
         #[cfg(feature = "unstable")] reliability: Reliability,
         #[cfg(feature = "unstable")] timestamp_stack: Option<
-            zenoh_protocol::network::timestamp_stack::TimestampStack,
+            zenoh_protocol::network::timestamp_stack::WireTimestampStack,
         >,
     ) -> Self {
         #[cfg(feature = "unstable")]
@@ -417,7 +417,7 @@ impl CallbackParameter for Sample {
         push::ext::QoSType,
         &'a mut PushBody,
         Reliability,
-        Option<zenoh_protocol::network::timestamp_stack::TimestampStack>,
+        Option<zenoh_protocol::network::timestamp_stack::WireTimestampStack>,
     );
     #[cfg(not(feature = "unstable"))]
     type Message<'a> = (KeyExpr<'static>, push::ext::QoSType, &'a mut PushBody);

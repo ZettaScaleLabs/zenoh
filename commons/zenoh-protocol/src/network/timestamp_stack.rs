@@ -19,7 +19,7 @@ use alloc::vec::Vec;
 /// type-safety across different message contexts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TsStackType<const ID: u8> {
-    pub ts_stack: TimestampStack,
+    pub ts_stack: WireTimestampStack,
 }
 
 impl<const ID: u8> TsStackType<{ ID }> {
@@ -40,7 +40,7 @@ impl<const ID: u8> TsStackType<{ ID }> {
         }
 
         Self {
-            ts_stack: TimestampStack { conf_flags, stack },
+            ts_stack: WireTimestampStack { conf_flags, stack },
         }
     }
 }
@@ -86,7 +86,7 @@ pub struct Interception {
 /// +---------------+
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TimestampStack {
+pub struct WireTimestampStack {
     /// Bitmask of which interception points are activated.
     pub conf_flags: u8,
     /// Ordered list of interceptions collected along the message path.

@@ -19,7 +19,7 @@ use zenoh_buffers::{
 };
 use zenoh_protocol::{
     common::ZExtZBufHeader,
-    network::timestamp_stack::{Interception, TimestampStack, TsStackType},
+    network::timestamp_stack::{Interception, TsStackType, WireTimestampStack},
 };
 
 use crate::{LCodec, RCodec, WCodec, Zenoh080, Zenoh080Header};
@@ -56,9 +56,9 @@ where
     }
 }
 
-// TimestampStack
-impl LCodec<&TimestampStack> for Zenoh080 {
-    fn w_len(self, x: &TimestampStack) -> usize {
+// WireTimestampStack
+impl LCodec<&WireTimestampStack> for Zenoh080 {
+    fn w_len(self, x: &WireTimestampStack) -> usize {
         let mut len = 1; // conf_flags
         len += self.w_len(x.stack.len());
         for i in &x.stack {
@@ -68,13 +68,13 @@ impl LCodec<&TimestampStack> for Zenoh080 {
     }
 }
 
-impl<W> WCodec<&TimestampStack, &mut W> for Zenoh080
+impl<W> WCodec<&WireTimestampStack, &mut W> for Zenoh080
 where
     W: Writer,
 {
     type Output = Result<(), DidntWrite>;
 
-    fn write(self, writer: &mut W, x: &TimestampStack) -> Self::Output {
+    fn write(self, writer: &mut W, x: &WireTimestampStack) -> Self::Output {
         self.write(&mut *writer, x.conf_flags)?;
         self.write(&mut *writer, x.stack.len())?;
         for i in &x.stack {
@@ -84,21 +84,24 @@ where
     }
 }
 
-impl<R> RCodec<TimestampStack, &mut R> for Zenoh080
+impl<R> RCodec<WireTimestampStack, &mut R> for Zenoh080
 where
     R: Reader,
 {
     type Error = DidntRead;
 
-    fn read(self, reader: &mut R) -> Result<TimestampStack, Self::Error> {
+    fn read(self, reader: &mut R) -> Result<WireTimestampStack, Self::Error> {
         let conf_flags: u8 = self.read(&mut *reader)?;
         let count: usize = self.read(&mut *reader)?;
-        //FIXME: this can panic due to call with unsanitized count input
+        const MAX_INTERCEPTION_STACK_DEPTH: usize = 64;
+        if count > MAX_INTERCEPTION_STACK_DEPTH {
+            return Err(DidntRead);
+        }
         let mut stack: Vec<Interception> = Vec::with_capacity(count);
         for _ in 0..count {
             stack.push(self.read(&mut *reader)?);
         }
-        Ok(TimestampStack { conf_flags, stack })
+        Ok(WireTimestampStack { conf_flags, stack })
     }
 }
 
@@ -144,7 +147,7 @@ where
 
     fn read(self, reader: &mut R) -> Result<(TsStackType<{ ID }>, bool), Self::Error> {
         let (_, more): (ZExtZBufHeader<{ ID }>, bool) = self.read(&mut *reader)?;
-        let ts_stack: TimestampStack = self.codec.read(&mut *reader)?;
+        let ts_stack: WireTimestampStack = self.codec.read(&mut *reader)?;
         Ok((TsStackType { ts_stack }, more))
     }
 }

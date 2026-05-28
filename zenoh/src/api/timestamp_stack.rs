@@ -33,7 +33,6 @@ pub struct TsStackContext {
     pub zid: ZenohId,
     /// The mode of the current node (router, peer, or client).
     pub whatami: WhatAmI,
-    // TODO: should be a non-exhaustive enum
     /// The interception point identifier (e.g., `zenoh_protocol::network::timestamp_stack::interception_point::SEND`).
     pub interception_point: InterceptionPoint,
 }
@@ -47,6 +46,7 @@ pub type GetTimestampCallback = Arc<dyn Fn(TsStackContext) -> Vec<u8> + Send + S
 
 /// Identifies which interception point a timestamp record was captured at.
 #[zenoh_macros::unstable]
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InterceptionPoint {
     Send,
@@ -227,12 +227,14 @@ pub(crate) fn push_ts_interception<const ID: u8, T: IRuntime + ?Sized>(
         return;
     };
     if ts_stack.ts_stack.conf_flags & point != 0 {
+        let Ok(interception_point) = point.try_into() else {
+            debug_assert!(false, "push_ts_interception called with unknown point ID {point:#04x}");
+            return;
+        };
         let context = TsStackContext {
             zid: runtime.zid(),
             whatami: runtime.whatami(),
-            interception_point: point
-                .try_into()
-                .expect("internal calls should provide valid interception point IDs"),
+            interception_point,
         };
         let timestamp = runtime.get_ts_stack_timestamp(context);
         ts_stack.ts_stack.stack.push(Interception {
@@ -243,11 +245,11 @@ pub(crate) fn push_ts_interception<const ID: u8, T: IRuntime + ?Sized>(
 }
 
 #[cfg(feature = "unstable")]
-impl TryFrom<&zenoh_protocol::network::timestamp_stack::TimestampStack> for TimestampStack {
+impl TryFrom<&zenoh_protocol::network::timestamp_stack::WireTimestampStack> for TimestampStack {
     type Error = zenoh_result::Error;
 
     fn try_from(
-        ts: &zenoh_protocol::network::timestamp_stack::TimestampStack,
+        ts: &zenoh_protocol::network::timestamp_stack::WireTimestampStack,
     ) -> zenoh_result::ZResult<Self> {
         let mut instance = Self {
             instrumentation: TimestampInstrumentation::try_from_flags(ts.conf_flags)?,
@@ -275,9 +277,9 @@ impl TryFrom<&zenoh_protocol::network::timestamp_stack::TimestampStack> for Time
 }
 
 #[cfg(feature = "unstable")]
-impl From<&TimestampStack> for zenoh_protocol::network::timestamp_stack::TimestampStack {
+impl From<&TimestampStack> for zenoh_protocol::network::timestamp_stack::WireTimestampStack {
     fn from(value: &TimestampStack) -> Self {
-        zenoh_protocol::network::timestamp_stack::TimestampStack {
+        zenoh_protocol::network::timestamp_stack::WireTimestampStack {
             conf_flags: value.instrumentation.conf_flags,
             stack: value
                 .records

@@ -558,7 +558,7 @@ impl SubscriberCallbacks {
         msg: &mut PushBody,
         #[cfg(feature = "unstable")] reliability: Reliability,
         #[cfg(feature = "unstable")] timestamp_stack: Option<
-            zenoh_protocol::network::timestamp_stack::TimestampStack,
+            zenoh_protocol::network::timestamp_stack::WireTimestampStack,
         >,
     ) {
         let zenoh_collections::single_or_vec::IntoIter { drain, last } = self.0.into_iter();
@@ -2546,10 +2546,10 @@ impl Session {
         #[cfg(feature = "unstable")]
         if let Some(instrumentation) = timestamp_instrumentation {
             use zenoh_protocol::network::timestamp_stack::{
-                interception_point, TimestampStack, TsStackType,
+                interception_point, TsStackType, WireTimestampStack,
             };
             let mut ext_ts_stack = Some(TsStackType {
-                ts_stack: TimestampStack {
+                ts_stack: WireTimestampStack {
                     conf_flags: instrumentation.conf_flags(),
                     stack: vec![],
                 },
@@ -2579,7 +2579,7 @@ impl Session {
                 push: &mut Push,
                 #[cfg(feature = "unstable")] reliability: Reliability,
                 #[cfg(feature = "unstable")] timestamp_stack: Option<
-                    zenoh_protocol::network::timestamp_stack::TimestampStack,
+                    zenoh_protocol::network::timestamp_stack::WireTimestampStack,
                 >,
             ) {
                 callbacks.call(
@@ -2594,7 +2594,7 @@ impl Session {
             }
 
             #[cfg(feature = "unstable")]
-            let timestamp_stack = push.ext_ts_stack.as_ref().map(|ts| ts.ts_stack.clone());
+            let timestamp_stack = push.ext_ts_stack.take().map(|ts| ts.ts_stack);
             call_local(
                 callbacks,
                 &mut push,
@@ -2812,7 +2812,7 @@ impl Session {
                     ext_attachment,
                     ext_unknown: vec![],
                 }),
-                // TODO: avoid this clone if possible
+                // Cloned because the same stack is also passed to the local handler below.
                 ext_ts_stack: ext_ts_stack.clone(),
             });
         }
@@ -2954,7 +2954,7 @@ impl Session {
         body: Option<QueryBodyType>,
         attachment: Option<ZBytes>,
         #[cfg(feature = "unstable")] timestamp_stack: Option<
-            zenoh_protocol::network::timestamp_stack::TimestampStack,
+            zenoh_protocol::network::timestamp_stack::WireTimestampStack,
         >,
     ) {
         let Ok(primitives) = state.primitives() else {
@@ -3327,7 +3327,7 @@ impl Primitives for WeakSession {
             #[cfg(feature = "unstable")]
             _reliability,
             #[cfg(feature = "unstable")]
-            msg.ext_ts_stack.as_ref().map(|ts| ts.ts_stack.clone()),
+            msg.ext_ts_stack.take().map(|ts| ts.ts_stack),
         );
     }
 
@@ -3361,8 +3361,7 @@ impl Primitives for WeakSession {
                             mem::take(&mut m.ext_body),
                             mem::take(&mut m.ext_attachment).map(Into::into),
                             #[cfg(feature = "unstable")]
-                            // TODO: avoid this clone if possible. should we just mem::take ?
-                            msg.ext_ts_stack.as_ref().map(|ts| ts.ts_stack.clone()),
+                            msg.ext_ts_stack.take().map(|ts| ts.ts_stack),
                         );
                     }
                     Err(err) => {
@@ -3396,11 +3395,10 @@ impl Primitives for WeakSession {
                                 payload: mem::take(&mut e.payload).into(),
                                 encoding: mem::take(&mut e.encoding).into(),
                                 #[cfg(feature = "unstable")]
-                                // TODO: avoid this clone if possible. should we just mem::take ?
                                 timestamp_stack: msg
                                     .ext_ts_stack
-                                    .as_ref()
-                                    .map(|ts| crate::api::timestamp_stack::TimestampStack::try_from(&ts.ts_stack).ok()).flatten(),
+                                    .take()
+                                    .and_then(|ts| crate::api::timestamp_stack::TimestampStack::try_from(&ts.ts_stack).ok()),
                             }),
                             #[cfg(feature = "unstable")]
                             replier_id: mem::take(&mut msg.ext_respid).map(|rid| {
@@ -3451,8 +3449,7 @@ impl Primitives for WeakSession {
                                 #[cfg(feature = "unstable")]
                                 Reliability::Reliable,
                                 #[cfg(feature = "unstable")]
-                                // TODO: avoid this clone if possible. should we just mem::take ?
-                                msg.ext_ts_stack.as_ref().map(|ts| ts.ts_stack.clone()),
+                                msg.ext_ts_stack.take().map(|ts| ts.ts_stack),
                             )),
                             #[cfg(feature = "unstable")]
                             replier_id: mem::take(&mut msg.ext_respid).map(|rid| {

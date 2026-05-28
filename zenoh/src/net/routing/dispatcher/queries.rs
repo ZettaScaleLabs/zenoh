@@ -493,7 +493,8 @@ impl Timed for QueryCleanup {
                     ext_qos: self.qos,
                     ext_tstamp: None,
                     ext_respid,
-                    // TODO: Maybe this should be set?
+                    // Timeout synthetic replies carry no timestamp stack: they are generated
+                    // locally by the router, not forwarded from a real replier.
                     ext_ts_stack: None,
                 },
             );
