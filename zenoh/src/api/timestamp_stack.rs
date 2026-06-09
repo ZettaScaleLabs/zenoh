@@ -37,12 +37,16 @@ pub struct TsStackContext {
     pub interception_point: InterceptionPoint,
 }
 
-/// Type alias for the user-defined timestamp callback.
+/// Session-level callback for generating custom timestamps.
+///
+/// Registered once at [`zenoh::open`](crate::open) time via
+/// [`OpenBuilder::with_timestamp_callback`](crate::session::OpenBuilder::with_timestamp_callback)
+/// and applied to every instrumented message on that session.
 ///
 /// The callback receives a [`TsStackContext`] and returns the raw timestamp bytes
-/// to be pushed onto the timestamp stack.
+/// to be pushed onto the stack. Return an empty `Vec` to skip stamping this point.
 #[zenoh_macros::unstable]
-pub type GetTimestampCallback = Arc<dyn Fn(TsStackContext) -> Vec<u8> + Send + Sync>;
+pub type SessionTimestampCallback = Arc<dyn Fn(TsStackContext) -> Vec<u8> + Send + Sync>;
 
 /// Identifies which interception point a timestamp record was captured at.
 ///

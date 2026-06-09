@@ -28,7 +28,7 @@ use zenoh_shm::api::client_storage::ShmClientStorage;
 
 use crate::api::session::Session;
 #[cfg(feature = "unstable")]
-use crate::api::timestamp_stack::GetTimestampCallback;
+use crate::api::timestamp_stack::SessionTimestampCallback;
 #[cfg(feature = "internal")]
 use crate::net::runtime::DynamicRuntime;
 
@@ -52,7 +52,7 @@ where
     #[cfg(feature = "shared-memory")]
     shm_clients: Option<Arc<ShmClientStorage>>,
     #[cfg(feature = "unstable")]
-    timestamp_callback: Option<GetTimestampCallback>,
+    timestamp_callback: Option<SessionTimestampCallback>,
 }
 
 impl<TryIntoConfig> fmt::Debug for OpenBuilder<TryIntoConfig>
@@ -115,8 +115,8 @@ where
     ///
     /// If no callback is provided, the default UHLC timestamp generation will be used.
     #[zenoh_macros::unstable]
-    pub fn with_timestamp_callback(mut self, cb: impl Into<GetTimestampCallback>) -> Self {
-        self.timestamp_callback = Some(cb.into());
+    pub fn with_timestamp_callback(mut self, cb: SessionTimestampCallback) -> Self {
+        self.timestamp_callback = Some(cb);
         self
     }
 }

@@ -1188,7 +1188,7 @@ pub mod shm {
 #[zenoh_macros::unstable]
 pub mod timestamp_stack {
     pub use crate::api::timestamp_stack::{
-        GetTimestampCallback, InstrumentationTimestamp, InterceptionPoint,
+        SessionTimestampCallback, InstrumentationTimestamp, InterceptionPoint,
         TimestampInstrumentation, TimestampInstrumentationBuilder, TimestampStack,
         TimestampStackRecord, TsStackContext,
     };
