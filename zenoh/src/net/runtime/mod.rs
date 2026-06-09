@@ -290,7 +290,7 @@ impl IRuntime for RuntimeState {
         use zenoh_codec::{WCodec, Zenoh080};
         let mut buf = Vec::new();
         if let Err(e) = Zenoh080.write(&mut buf, &ts) {
-            tracing::warn!("Failed to serialize HLC timestamp for TsStack: {e} — skipping");
+            tracing::warn!("Failed to serialize HLC timestamp for TsStack: {e:?} — skipping");
             return (Vec::new(), false);
         }
         (buf, false)
