@@ -28,7 +28,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use zenoh::timestamp_stack::{InstrumentationTimestamp, InterceptionPoint, TimestampInstrumentation};
+use zenoh::timestamp_stack::{InstrumentationTimestamp, InterceptionPoint, TimestampInstrumentationBuilder};
 use zenoh::Config;
 
 const N_SAMPLES: usize = 500;
@@ -121,7 +121,12 @@ async fn main() {
     );
 
     let session = zenoh::open(Config::default()).await.unwrap();
-    let instr = TimestampInstrumentation::new(true, true, true).unwrap();
+    let instr = TimestampInstrumentationBuilder::new()
+        .set_send(true)
+        .set_route(true)
+        .set_receive(true)
+        .build()
+        .unwrap();
 
     let acc: Arc<Mutex<HopAccumulator>> = Arc::new(Mutex::new(HopAccumulator::default()));
     let acc2 = acc.clone();

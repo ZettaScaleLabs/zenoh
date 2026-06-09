@@ -36,7 +36,7 @@ use std::time::Duration;
 
 use zenoh::timestamp_stack::{
     InstrumentationTimestamp, InterceptionPoint, SessionTimestampCallback,
-    TimestampInstrumentation, TsStackContext,
+    TimestampInstrumentationBuilder, TsStackContext,
 };
 use zenoh::Config;
 
@@ -125,7 +125,11 @@ async fn main() {
         .await
         .unwrap();
 
-    let instr = TimestampInstrumentation::new(true, false, true).unwrap();
+    let instr = TimestampInstrumentationBuilder::new()
+        .set_send(true)
+        .set_receive(true)
+        .build()
+        .unwrap();
 
     let samples: Arc<Mutex<Vec<_>>> = Arc::new(Mutex::new(vec![]));
     let samples2 = samples.clone();

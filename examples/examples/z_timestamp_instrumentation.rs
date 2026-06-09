@@ -23,7 +23,7 @@
 
 use std::time::Duration;
 
-use zenoh::timestamp_stack::{InstrumentationTimestamp, TimestampInstrumentation};
+use zenoh::timestamp_stack::{InstrumentationTimestamp, TimestampInstrumentationBuilder};
 use zenoh::Config;
 
 fn ntp_to_ns(ntp: u64) -> u64 {
@@ -39,7 +39,12 @@ async fn main() {
     let session = zenoh::open(Config::default()).await.unwrap();
 
     // Enable Send + Route + Receive instrumentation.
-    let instr = TimestampInstrumentation::new(true, true, true).unwrap();
+    let instr = TimestampInstrumentationBuilder::new()
+        .set_send(true)
+        .set_route(true)
+        .set_receive(true)
+        .build()
+        .unwrap();
 
     let _sub = session
         .declare_subscriber("demo/timestamps/**")
