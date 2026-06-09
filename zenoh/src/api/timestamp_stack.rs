@@ -28,6 +28,7 @@ use crate::{net::runtime::IRuntime, session::ZenohId};
 /// The struct is `#[non_exhaustive]` to allow adding new fields in the future.
 #[non_exhaustive]
 #[zenoh_macros::unstable]
+#[derive(Debug, Clone)]
 pub struct TsStackContext {
     /// The Zenoh ID of the current node.
     pub zid: ZenohId,
