@@ -20,7 +20,7 @@ use zenoh::{
     config::WhatAmI,
     query::ConsolidationMode,
     timestamp_stack::{
-        GetTimestampCallback, InstrumentationTimestamp, InterceptionPoint,
+        SessionTimestampCallback, InstrumentationTimestamp, InterceptionPoint,
         TimestampInstrumentation, TimestampInstrumentationBuilder,
     },
 };
@@ -1380,7 +1380,7 @@ async fn custom_callback_pub_sub() {
     zenoh_util::init_log_from_env_or("error");
     let ke = "test/ts_instr/custom_callback/pub_sub";
     let custom_bytes = b"custom_ts_123".to_vec();
-    let cb: GetTimestampCallback = Arc::new(move |_ctx| custom_bytes.clone());
+    let cb: SessionTimestampCallback = Arc::new(move |_ctx| custom_bytes.clone());
 
     let instr = make_instrumentation(true, false, false);
 
@@ -1415,8 +1415,8 @@ async fn custom_callback_query_reply() {
     let custom_bytes_query = b"custom_query_ts".to_vec();
     let custom_bytes_reply = b"custom_reply_ts".to_vec();
 
-    let cb_query: GetTimestampCallback = Arc::new(move |_ctx| custom_bytes_query.clone());
-    let cb_reply: GetTimestampCallback = Arc::new(move |_ctx| custom_bytes_reply.clone());
+    let cb_query: SessionTimestampCallback = Arc::new(move |_ctx| custom_bytes_query.clone());
+    let cb_reply: SessionTimestampCallback = Arc::new(move |_ctx| custom_bytes_reply.clone());
 
     let instr = make_instrumentation(true, false, true);
 
@@ -1504,7 +1504,7 @@ async fn custom_callback_context() {
     };
     let capture_clone = capture.clone();
 
-    let cb: GetTimestampCallback = Arc::new(move |ctx| {
+    let cb: SessionTimestampCallback = Arc::new(move |ctx| {
         capture_clone
             .contexts
             .lock()

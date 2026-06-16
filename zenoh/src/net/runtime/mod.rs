@@ -90,7 +90,7 @@ use crate::api::loader::{load_plugins, start_plugins};
 #[cfg(feature = "plugins")]
 use crate::api::plugins::PluginsManager;
 #[cfg(feature = "unstable")]
-use crate::api::timestamp_stack::{GetTimestampCallback, TsStackContext};
+use crate::api::timestamp_stack::{SessionTimestampCallback, TsStackContext};
 #[cfg(feature = "internal")]
 use crate::session::CloseBuilder;
 use crate::{
@@ -181,7 +181,7 @@ pub(crate) struct RuntimeState {
     #[cfg(feature = "unstable")]
     lazy_hlc: OnceLock<Arc<HLC>>,
     #[cfg(feature = "unstable")]
-    timestamp_callback: Option<GetTimestampCallback>,
+    timestamp_callback: Option<SessionTimestampCallback>,
     task_controller: TaskController,
     #[cfg(feature = "plugins")]
     plugins_manager: Mutex<PluginsManager>,
@@ -289,7 +289,8 @@ impl IRuntime for RuntimeState {
 
         use zenoh_codec::{WCodec, Zenoh080};
         let mut buf = Vec::new();
-        if Zenoh080.write(&mut buf, &ts).is_err() {
+        if let Err(e) = Zenoh080.write(&mut buf, &ts) {
+            tracing::warn!("Failed to serialize HLC timestamp for TsStack: {e:?} — skipping");
             return (Vec::new(), false);
         }
         (buf, false)
@@ -642,7 +643,7 @@ pub struct RuntimeBuilder {
     #[cfg(feature = "shared-memory")]
     shm_clients: Option<Arc<ShmClientStorage>>,
     #[cfg(feature = "unstable")]
-    timestamp_callback: Option<GetTimestampCallback>,
+    timestamp_callback: Option<SessionTimestampCallback>,
     #[cfg(test)]
     subregions: Option<Vec<Region>>,
     #[cfg(test)]
@@ -701,7 +702,7 @@ impl RuntimeBuilder {
     }
 
     #[cfg(feature = "unstable")]
-    pub fn timestamp_callback(mut self, cb: Option<GetTimestampCallback>) -> Self {
+    pub fn timestamp_callback(mut self, cb: Option<SessionTimestampCallback>) -> Self {
         self.timestamp_callback = cb;
         self
     }

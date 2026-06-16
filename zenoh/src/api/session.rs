@@ -77,7 +77,7 @@ use crate::api::timestamp_stack::TimestampInstrumentation;
 #[cfg(feature = "unstable")]
 use crate::api::{
     cancellation::CancellationToken, sample::SourceInfo, selector::ZenohParameters,
-    timestamp_stack::GetTimestampCallback,
+    timestamp_stack::SessionTimestampCallback,
 };
 #[cfg(feature = "internal")]
 use crate::net::runtime::Runtime;
@@ -1451,7 +1451,7 @@ impl Session {
     pub(super) fn new(
         config: Config,
         #[cfg(feature = "shared-memory")] shm_clients: Option<Arc<ShmClientStorage>>,
-        #[cfg(feature = "unstable")] timestamp_callback: Option<GetTimestampCallback>,
+        #[cfg(feature = "unstable")] timestamp_callback: Option<SessionTimestampCallback>,
     ) -> impl Resolve<ZResult<Session>> {
         ResolveFuture::new(async move {
             tracing::debug!("Config: {:?}", &config);

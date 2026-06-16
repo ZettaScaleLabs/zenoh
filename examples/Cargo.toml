@@ -177,3 +177,18 @@ required-features = ["shared-memory", "unstable"]
 name = "z_posix_shm_provider"
 path = "examples/z_posix_shm_provider.rs"
 required-features = ["shared-memory", "unstable"]
+
+[[example]]
+name = "z_timestamp_instrumentation"
+path = "examples/z_timestamp_instrumentation.rs"
+required-features = ["unstable"]
+
+[[example]]
+name = "z_latency_collector"
+path = "examples/z_latency_collector.rs"
+required-features = ["unstable"]
+
+[[example]]
+name = "z_proprietary_token"
+path = "examples/z_proprietary_token.rs"
+required-features = ["unstable"]

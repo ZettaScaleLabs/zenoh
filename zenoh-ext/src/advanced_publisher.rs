@@ -32,6 +32,7 @@ use zenoh::{
         },
         TerminatableTask,
     },
+    timestamp_stack::TimestampInstrumentation,
     key_expr::{keyexpr, KeyExpr},
     liveliness::LivelinessToken,
     pubsub::{
@@ -124,6 +125,8 @@ pub struct AdvancedPublisherBuilder<'a, 'b, 'c> {
     liveliness: bool,
     cache: bool,
     history: CacheConfig,
+    #[cfg(feature = "unstable")]
+    default_timestamp_instrumentation: Option<TimestampInstrumentation>,
 }
 
 #[zenoh_macros::unstable]
@@ -144,6 +147,10 @@ impl fmt::Debug for AdvancedPublisherBuilder<'_, '_, '_> {
             .field("liveliness", &self.liveliness)
             .field("cache", &self.cache)
             .field("history", &self.history)
+            .field(
+                "default_timestamp_instrumentation",
+                &self.default_timestamp_instrumentation,
+            )
             .finish()
     }
 }
@@ -167,6 +174,8 @@ impl<'a, 'b, 'c> AdvancedPublisherBuilder<'a, 'b, 'c> {
             liveliness: false,
             cache: false,
             history: CacheConfig::default(),
+            #[cfg(feature = "unstable")]
+            default_timestamp_instrumentation: None,
         }
     }
 
@@ -286,6 +295,24 @@ impl QoSBuilderTrait for AdvancedPublisherBuilder<'_, '_, '_> {
 }
 
 #[zenoh_macros::unstable]
+impl<'a, 'b, 'c> AdvancedPublisherBuilder<'a, 'b, 'c> {
+    /// Sets a default [`TimestampInstrumentation`] applied to every `put`/`delete` from this publisher.
+    ///
+    /// Can be overridden per-put via
+    /// [`AdvancedPublicationBuilder::timestamp_instrumentation`].
+    #[zenoh_macros::unstable]
+    pub fn timestamp_instrumentation(
+        self,
+        instrumentation: Option<TimestampInstrumentation>,
+    ) -> Self {
+        Self {
+            default_timestamp_instrumentation: instrumentation,
+            ..self
+        }
+    }
+}
+
+#[zenoh_macros::unstable]
 impl<'b> Resolvable for AdvancedPublisherBuilder<'_, 'b, '_> {
     type To = ZResult<AdvancedPublisher<'b>>;
 }
@@ -348,6 +375,8 @@ pub struct AdvancedPublisher<'a> {
     cache: Option<AdvancedCache>,
     _token: Option<LivelinessToken>,
     _state_publisher: Option<TerminatableTask>,
+    #[cfg(feature = "unstable")]
+    default_timestamp_instrumentation: Option<TimestampInstrumentation>,
 }
 
 #[zenoh_macros::unstable]
@@ -506,6 +535,8 @@ impl<'a> AdvancedPublisher<'a> {
             cache,
             _token: token,
             _state_publisher: state_publisher,
+            #[cfg(feature = "unstable")]
+            default_timestamp_instrumentation: conf.default_timestamp_instrumentation,
         })
     }
 
@@ -590,6 +621,10 @@ impl<'a> AdvancedPublisher<'a> {
         if let Some(hlc) = self.publisher.session().hlc() {
             builder = builder.timestamp(hlc.new_timestamp());
         }
+        #[cfg(feature = "unstable")]
+        if self.default_timestamp_instrumentation.is_some() {
+            builder = builder.timestamp_instrumentation(self.default_timestamp_instrumentation);
+        }
         AdvancedPublisherPutBuilder {
             builder,
             cache: self.cache.as_ref(),
@@ -622,6 +657,10 @@ impl<'a> AdvancedPublisher<'a> {
         }
         if let Some(hlc) = self.publisher.session().hlc() {
             builder = builder.timestamp(hlc.new_timestamp());
+        }
+        #[cfg(feature = "unstable")]
+        if self.default_timestamp_instrumentation.is_some() {
+            builder = builder.timestamp_instrumentation(self.default_timestamp_instrumentation);
         }
         AdvancedPublisherDeleteBuilder {
             builder,
