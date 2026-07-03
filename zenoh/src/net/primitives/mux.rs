@@ -21,8 +21,8 @@ use arc_swap::ArcSwapOption;
 use zenoh_protocol::{
     core::Reliability,
     network::{
-        interest::Interest, response, Declare, NetworkBodyMut, NetworkMessageExt as _,
-        NetworkMessageMut, Push, Request, Response, ResponseFinal,
+        interest::Interest, Declare, NetworkBodyMut, NetworkMessageExt as _, NetworkMessageMut,
+        Push, Request, Response, ResponseFinal,
     },
 };
 use zenoh_transport::{multicast::TransportMulticast, unicast::TransportUnicast};
@@ -30,8 +30,8 @@ use zenoh_transport::{multicast::TransportMulticast, unicast::TransportUnicast};
 use super::{EPrimitives, Primitives};
 use crate::net::routing::{
     dispatcher::face::{Face, WeakFace},
+    gateway::{InterceptorCacheValueType, Resource},
     interceptor::{has_interceptor, InterceptorContext, InterceptorTrait, InterceptorsChain},
-    router::{InterceptorCacheValueType, Resource},
     RoutingContext,
 };
 
@@ -85,7 +85,9 @@ impl MuxContext<'_> {
         if let Some(wire_expr) = msg.wire_expr() {
             let wire_expr = wire_expr.to_owned();
             if let Some(face) = self.mux.face.get().and_then(|f| f.upgrade()) {
-                if let Some(prefix) = zread!(face.tables.tables)
+                let rtables = zread!(face.tables.tables);
+                if let Some(prefix) = rtables
+                    .data
                     .get_sent_mapping(&face.state, &wire_expr.scope, wire_expr.mapping)
                     .cloned()
                 {
@@ -182,6 +184,7 @@ impl EPrimitives for Mux {
     }
 
     fn send_request(&self, msg: &mut Request) -> bool {
+        let qos = msg.ext_qos;
         let request_id = msg.id;
         let mut msg = NetworkMessageMut {
             body: NetworkBodyMut::Request(msg),
@@ -193,7 +196,7 @@ impl EPrimitives for Mux {
             match self.face.get().and_then(|f| f.upgrade()) {
                 Some(face) => face.send_response_final(&mut ResponseFinal {
                     rid: request_id,
-                    ext_qos: response::ext::QoSType::RESPONSE_FINAL,
+                    ext_qos: qos,
                     ext_tstamp: None,
                 }),
                 None => tracing::error!("Uninitialized multiplexer!"),
@@ -270,7 +273,10 @@ impl McastMuxContext<'_> {
         if let Some(wire_expr) = msg.wire_expr() {
             let wire_expr = wire_expr.to_owned();
             if let Some(face) = self.mux.face.get() {
-                if let Some(prefix) = zread!(face.tables.tables)
+                let rtables = zread!(face.tables.tables);
+
+                if let Some(prefix) = rtables
+                    .data
                     .get_sent_mapping(&face.state, &wire_expr.scope, wire_expr.mapping)
                     .cloned()
                 {
@@ -371,6 +377,7 @@ impl EPrimitives for McastMux {
 
     fn send_request(&self, msg: &mut Request) -> bool {
         let request_id = msg.id;
+        let qos = msg.ext_qos;
         let mut msg = NetworkMessageMut {
             body: NetworkBodyMut::Request(msg),
             reliability: Reliability::Reliable,
@@ -381,7 +388,7 @@ impl EPrimitives for McastMux {
             match self.face.get() {
                 Some(face) => face.send_response_final(&mut ResponseFinal {
                     rid: request_id,
-                    ext_qos: response::ext::QoSType::RESPONSE_FINAL,
+                    ext_qos: qos,
                     ext_tstamp: None,
                 }),
                 None => tracing::error!("Uninitialized multiplexer!"),

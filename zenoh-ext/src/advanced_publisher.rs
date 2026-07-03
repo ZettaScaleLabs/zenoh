@@ -12,6 +12,7 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 use std::{
+    fmt,
     future::{IntoFuture, Ready},
     sync::{
         atomic::{AtomicU32, Ordering},
@@ -50,7 +51,7 @@ use crate::{
 
 pub(crate) static KE_PUB: &keyexpr = ke!("pub");
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 #[zenoh_macros::unstable]
 pub(crate) enum Sequencing {
     None,
@@ -120,9 +121,30 @@ pub struct AdvancedPublisherBuilder<'a, 'b, 'c> {
     sequencing: Sequencing,
     miss_config: Option<MissDetectionConfig>,
     liveliness: bool,
-    cache: bool,
-    history: CacheConfig,
+    history: Option<CacheConfig>,
     fragmentation: Option<usize>,
+}
+
+#[zenoh_macros::unstable]
+impl fmt::Debug for AdvancedPublisherBuilder<'_, '_, '_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AdvancedPublisherBuilder")
+            .field("session", &"..")
+            .field("pub_key_expr", &self.pub_key_expr)
+            .field("encoding", &self.encoding)
+            .field("destination", &self.destination)
+            .field("reliability", &self.reliability)
+            .field("congestion_control", &self.congestion_control)
+            .field("priority", &self.priority)
+            .field("is_express", &self.is_express)
+            .field("meta_key_expr", &self.meta_key_expr)
+            .field("sequencing", &self.sequencing)
+            .field("miss_config", &self.miss_config)
+            .field("liveliness", &self.liveliness)
+            .field("history", &self.history)
+            .field("fragmentation", &self.fragmentation)
+            .finish()
+    }
 }
 
 #[zenoh_macros::unstable]
@@ -142,8 +164,7 @@ impl<'a, 'b, 'c> AdvancedPublisherBuilder<'a, 'b, 'c> {
             sequencing: Sequencing::None,
             miss_config: None,
             liveliness: false,
-            cache: false,
-            history: CacheConfig::default(),
+            history: None,
             fragmentation: None,
         }
     }
@@ -188,11 +209,10 @@ impl<'a, 'b, 'c> AdvancedPublisherBuilder<'a, 'b, 'c> {
     /// The cache can be used for history and/or recovery.
     #[zenoh_macros::unstable]
     pub fn cache(mut self, config: CacheConfig) -> Self {
-        self.cache = true;
         if self.sequencing == Sequencing::None {
             self.sequencing = Sequencing::Timestamp;
         }
-        self.history = config;
+        self.history = Some(config);
         self
     }
 
@@ -232,6 +252,7 @@ impl<'a, 'b, 'c> AdvancedPublisherBuilder<'a, 'b, 'c> {
 #[zenoh_macros::internal_trait]
 #[zenoh_macros::unstable]
 impl EncodingBuilderTrait for AdvancedPublisherBuilder<'_, '_, '_> {
+    /// Set the [`Encoding`]
     #[zenoh_macros::unstable]
     fn encoding<T: Into<Encoding>>(self, encoding: T) -> Self {
         Self {
@@ -244,7 +265,7 @@ impl EncodingBuilderTrait for AdvancedPublisherBuilder<'_, '_, '_> {
 #[zenoh_macros::internal_trait]
 #[zenoh_macros::unstable]
 impl QoSBuilderTrait for AdvancedPublisherBuilder<'_, '_, '_> {
-    /// Changes the [`zenoh::qos::CongestionControl`] to apply when routing the data.
+    /// Changes the [`CongestionControl`] to apply when routing the data.
     #[inline]
     #[zenoh_macros::unstable]
     fn congestion_control(self, congestion_control: CongestionControl) -> Self {
@@ -254,7 +275,7 @@ impl QoSBuilderTrait for AdvancedPublisherBuilder<'_, '_, '_> {
         }
     }
 
-    /// Changes the [`zenoh::qos::Priority`] of the written data.
+    /// Changes the [`Priority`] to apply when routing the data.
     #[inline]
     #[zenoh_macros::unstable]
     fn priority(self, priority: Priority) -> Self {
@@ -339,6 +360,25 @@ pub struct AdvancedPublisher<'a> {
 }
 
 #[zenoh_macros::unstable]
+impl fmt::Debug for AdvancedPublisher<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AdvancedPublisher")
+            .field("publisher", &self.publisher)
+            .field(
+                "seqnum",
+                &self
+                    .seqnum
+                    .as_ref()
+                    .map(|seqnum| seqnum.load(Ordering::Relaxed)),
+            )
+            .field("cache", &self.cache.as_ref().map(|_| ".."))
+            .field("token", &self._token.as_ref().map(|_| ".."))
+            .field("state_publisher", &self._state_publisher)
+            .finish()
+    }
+}
+
+#[zenoh_macros::unstable]
 impl<'a> AdvancedPublisher<'a> {
     #[zenoh_macros::unstable]
     fn new(conf: AdvancedPublisherBuilder<'_, 'a, '_>) -> ZResult<Self> {
@@ -388,16 +428,15 @@ impl<'a> AdvancedPublisher<'a> {
             _ => None,
         };
 
-        let cache = if conf.cache {
-            Some(
+        let cache = conf
+            .history
+            .map(|h| {
                 AdvancedCacheBuilder::new(conf.session, Ok(key_expr.clone()))
-                    .history(conf.history)
+                    .history(h)
                     .queryable_suffix(&suffix)
-                    .wait()?,
-            )
-        } else {
-            None
-        };
+                    .wait()
+            })
+            .transpose()?;
 
         let token = if conf.liveliness {
             tracing::debug!(
@@ -671,9 +710,20 @@ pub struct AdvancedPublicationBuilder<'a, P> {
     pub(crate) builder: PublicationBuilder<&'a Publisher<'a>, P>,
 }
 
+#[zenoh_macros::unstable]
+impl<P> fmt::Debug for AdvancedPublicationBuilder<'_, P> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AdvancedPublicationBuilder")
+            .field("builder", &"..")
+            .field("has_cache", &self.publisher.cache.is_some())
+            .finish()
+    }
+}
+
 #[zenoh_macros::internal_trait]
 #[zenoh_macros::unstable]
 impl EncodingBuilderTrait for AdvancedPublicationBuilder<'_, PublicationBuilderPut> {
+    /// Set the [`Encoding`]
     #[zenoh_macros::unstable]
     fn encoding<T: Into<Encoding>>(self, encoding: T) -> Self {
         Self {
@@ -683,7 +733,6 @@ impl EncodingBuilderTrait for AdvancedPublicationBuilder<'_, PublicationBuilderP
     }
 }
 
-#[zenoh_macros::internal_trait]
 #[zenoh_macros::unstable]
 impl<P> SampleBuilderTrait for AdvancedPublicationBuilder<'_, P> {
     #[zenoh_macros::unstable]
@@ -700,6 +749,10 @@ impl<P> SampleBuilderTrait for AdvancedPublicationBuilder<'_, P> {
             ..self
         }
     }
+    /// Sets an optional attachment to be sent along with the publication.
+    ///
+    /// The argument is converted via [`OptionZBytes`], which supports both `T: Into<ZBytes>`
+    /// and `Option<T>` where `T: Into<ZBytes>`.
     #[zenoh_macros::unstable]
     fn attachment<TA: Into<OptionZBytes>>(self, attachment: TA) -> Self {
         let attachment: OptionZBytes = attachment.into();
@@ -713,6 +766,7 @@ impl<P> SampleBuilderTrait for AdvancedPublicationBuilder<'_, P> {
 #[zenoh_macros::internal_trait]
 #[zenoh_macros::unstable]
 impl<P> TimestampBuilderTrait for AdvancedPublicationBuilder<'_, P> {
+    /// Sets an optional timestamp to be sent along with the publication.
     #[zenoh_macros::unstable]
     fn timestamp<TS: Into<Option<uhlc::Timestamp>>>(self, timestamp: TS) -> Self {
         Self {

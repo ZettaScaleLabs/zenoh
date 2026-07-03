@@ -12,14 +12,13 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 use std::{
-    any::Any,
     env, fmt,
-    ops::Deref,
     path::Path,
     sync::{Arc, Mutex, MutexGuard},
 };
 
 use serde::{Deserialize, Serialize};
+use zenoh_config::ExpandedConfig;
 use zenoh_result::{bail, ZResult};
 
 /// Zenoh configuration.
@@ -72,65 +71,26 @@ impl Config {
     }
 
     pub fn remove<K: AsRef<str>>(&mut self, key: K) -> ZResult<()> {
-        match key.as_ref().split_once("=") {
-            None => self.0.remove(key.as_ref()),
-            Some((prefix, id_value)) => {
-                let (key, id_key) = prefix.rsplit_once("/").ok_or("missing id")?;
-                let current = serde_json::from_str::<serde_json::Value>(&self.get_json(key)?)?;
-                let serde_json::Value::Array(mut list) = current else {
-                    bail!("not an array")
-                };
-                let prev_len = list.len();
-                list.retain(|item| match item {
-                    serde_json::Value::Object(map) => {
-                        map.get(id_key).and_then(|v| v.as_str()) != Some(id_value)
-                    }
-                    _ => true,
-                });
-                if list.len() != prev_len {
-                    self.0.insert_json5(key, &serde_json::to_string(&list)?)?;
-                }
-                Ok(())
-            }
-        }
+        self.0.remove(key.as_ref())
+    }
+
+    /// See [`zenoh_config::Config::try_remove_json5_array_item`].
+    pub fn try_remove_json5_array_item<K: AsRef<str>>(&mut self, key: K) -> ZResult<bool> {
+        self.0.try_remove_json5_array_item(key)
     }
 
     /// Inserts configuration value `value` at `key`.
     pub fn insert_json5(&mut self, key: &str, value: &str) -> ZResult<()> {
-        match key.split_once("=") {
-            None => self.0.insert_json5(key, value),
-            Some((prefix, id_value)) => {
-                let (key, id_key) = prefix.rsplit_once("/").ok_or("missing id")?;
-                let new_item = json5::from_str::<serde_json::Value>(value)?;
-                if new_item
-                    .as_object()
-                    .and_then(|map| map.get(id_key))
-                    .and_then(|v| v.as_str())
-                    != Some(id_value)
-                {
-                    bail!("id mismatch");
-                }
-                let current = serde_json::from_str::<serde_json::Value>(&self.get_json(key)?)?;
-                let serde_json::Value::Array(mut list) = current else {
-                    bail!("not an array")
-                };
-                let mut new_item = Some(new_item);
-                for item in list.iter_mut() {
-                    let serde_json::Value::Object(map) = item else {
-                        bail!("array item is not an object");
-                    };
-                    if map.get(id_key).and_then(|v| v.as_str()) == Some(id_value) {
-                        *item = new_item.take().unwrap();
-                        break;
-                    }
-                }
-                if let Some(new_item) = new_item {
-                    list.push(new_item);
-                }
-                self.0.insert_json5(key, &serde_json::to_string(&list)?)
-            }
-        }
-        .map_err(|err| zerror!("{err}").into())
+        self.0
+            .insert_json5(key, value)
+            .map_err(|err| zerror!("{err}").into())
+    }
+
+    /// See [`zenoh_config::Config::try_insert_json5_array_item`].
+    pub fn try_insert_json5_array_item(&mut self, key: &str, value: &str) -> ZResult<bool> {
+        self.0
+            .try_insert_json5_array_item(key, value)
+            .map_err(|err| zerror!("{err}").into())
     }
 
     /// Returns a JSON string containing the configuration at `key`.
@@ -202,6 +162,12 @@ pub struct Notifier<T> {
     inner: Arc<NotifierInner<T>>,
 }
 
+impl<T> fmt::Debug for Notifier<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Notifier").field(&"..").finish()
+    }
+}
+
 impl<T> Clone for Notifier<T> {
     fn clone(&self) -> Self {
         Self {
@@ -210,8 +176,19 @@ impl<T> Clone for Notifier<T> {
     }
 }
 
-impl Notifier<Config> {
-    pub fn new(inner: Config) -> Self {
+fn ensure_config_key_is_dynamically_writable(key: &str) -> ZResult<()> {
+    if !key.starts_with("plugins/") {
+        bail!(
+            "Error inserting conf value {} : updating config is only \
+                supported for keys starting with `plugins/`",
+            key
+        );
+    }
+    Ok(())
+}
+
+impl Notifier<ExpandedConfig> {
+    pub fn new(inner: ExpandedConfig) -> Self {
         Notifier {
             inner: Arc::new(NotifierInner {
                 inner: Mutex::new(inner),
@@ -244,7 +221,7 @@ impl Notifier<Config> {
         }
     }
 
-    pub fn lock(&self) -> MutexGuard<'_, Config> {
+    pub fn lock(&self) -> MutexGuard<'_, ExpandedConfig> {
         self.lock_config()
     }
 
@@ -255,7 +232,7 @@ impl Notifier<Config> {
             .expect("acquiring Notifier's subscribers Mutex should not fail")
     }
 
-    fn lock_config(&self) -> MutexGuard<'_, Config> {
+    fn lock_config(&self) -> MutexGuard<'_, ExpandedConfig> {
         self.inner
             .inner
             .lock()
@@ -268,47 +245,30 @@ impl Notifier<Config> {
         Ok(())
     }
 
-    pub fn insert_json5(&self, key: &str, value: &str) -> ZResult<()> {
-        if !key.starts_with("plugins/") {
-            bail!(
-                "Error inserting conf value {} : updating config is only \
-                    supported for keys starting with `plugins/`",
-                key
-            );
+    pub fn try_remove_json5_array_item<K: AsRef<str>>(&self, key: K) -> ZResult<bool> {
+        let applied = self
+            .lock_config()
+            .try_remove_json5_array_item(key.as_ref())?;
+        if applied {
+            self.notify(key);
         }
+        Ok(applied)
+    }
+
+    pub fn insert_json5(&self, key: &str, value: &str) -> ZResult<()> {
+        ensure_config_key_is_dynamically_writable(key)?;
         self.lock_config().insert_json5(key, value)?;
         self.notify(key);
         Ok(())
     }
 
-    #[allow(dead_code)]
-    pub fn get<'a>(&'a self, key: &str) -> ZResult<LookupGuard<'a, Config>> {
-        let config = self.lock_config();
-        let subref = config.0.get(key.as_ref()).map_err(|err| zerror!("{err}"))? as *const _;
-        Ok(LookupGuard {
-            _guard: config,
-            subref,
-        })
-    }
-}
-
-pub struct LookupGuard<'a, T> {
-    _guard: MutexGuard<'a, T>,
-    subref: *const dyn Any,
-}
-
-impl<T> Deref for LookupGuard<'_, T> {
-    type Target = dyn Any;
-
-    fn deref(&self) -> &Self::Target {
-        // SAFETY: MutexGuard pins the mutex behind which the value is held.
-        unsafe { &*self.subref }
-    }
-}
-
-impl<T> AsRef<dyn Any> for LookupGuard<'_, T> {
-    fn as_ref(&self) -> &dyn Any {
-        self.deref()
+    pub fn try_insert_json5_array_item(&self, key: &str, value: &str) -> ZResult<bool> {
+        ensure_config_key_is_dynamically_writable(key)?;
+        let applied = self.lock_config().try_insert_json5_array_item(key, value)?;
+        if applied {
+            self.notify(key);
+        }
+        Ok(applied)
     }
 }
 
@@ -319,7 +279,31 @@ mod tests {
     use crate::Config;
 
     #[test]
-    fn insert_remove_list_item() {
+    fn runtime_try_insert_json5_array_item_rejects_non_plugin_keys() {
+        let config = super::Notifier::new(zenoh_config::Config::default().expanded());
+        let before = config.lock().get_json("qos/network").unwrap();
+
+        let err = config
+            .try_insert_json5_array_item(
+                "qos/network/id=item1",
+                r#"{
+                    id: "item1",
+                    messages: ["put"],
+                    key_exprs: ["**"],
+                    overwrite: { priority: "real_time" },
+                    flows: ["egress"]
+                }"#,
+            )
+            .unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("supported for keys starting with `plugins/`"));
+        assert_eq!(config.lock().get_json("qos/network").unwrap(), before);
+    }
+
+    #[test]
+    fn insert_remove_json5_array_item() {
         let mut config = Config::default();
 
         let item1 = r#"{
@@ -331,7 +315,9 @@ mod tests {
             },
             flows: ["egress"]
         }"#;
-        config.insert_json5("qos/network/id=item1", item1).unwrap();
+        assert!(config
+            .try_insert_json5_array_item("qos/network/id=item1", item1)
+            .unwrap());
         let items = serde_json::from_str::<Vec<QosOverwriteItemConf>>(
             &config.get_json("qos/network").unwrap(),
         )
@@ -352,7 +338,9 @@ mod tests {
             },
             flows: ["ingress"]
         }"#;
-        config.insert_json5("qos/network/id=item1", item1).unwrap();
+        assert!(config
+            .try_insert_json5_array_item("qos/network/id=item1", item1)
+            .unwrap());
         let items = serde_json::from_str::<Vec<QosOverwriteItemConf>>(
             &config.get_json("qos/network").unwrap(),
         )
@@ -373,7 +361,9 @@ mod tests {
             },
             flows: ["egress"]
         }"#;
-        config.insert_json5("qos/network/id=item2", item2).unwrap();
+        assert!(config
+            .try_insert_json5_array_item("qos/network/id=item2", item2)
+            .unwrap());
         let items = serde_json::from_str::<Vec<QosOverwriteItemConf>>(
             &config.get_json("qos/network").unwrap(),
         )
@@ -390,7 +380,9 @@ mod tests {
             InterceptorFlow::Egress
         );
 
-        config.remove("qos/network/id=item2").unwrap();
+        assert!(config
+            .try_remove_json5_array_item("qos/network/id=item2")
+            .unwrap());
         let items = serde_json::from_str::<Vec<QosOverwriteItemConf>>(
             &config.get_json("qos/network").unwrap(),
         )
@@ -402,7 +394,9 @@ mod tests {
             InterceptorFlow::Ingress
         );
 
-        config.remove("qos/network/id=item1").unwrap();
+        assert!(config
+            .try_remove_json5_array_item("qos/network/id=item1")
+            .unwrap());
         let items = serde_json::from_str::<Vec<QosOverwriteItemConf>>(
             &config.get_json("qos/network").unwrap(),
         )

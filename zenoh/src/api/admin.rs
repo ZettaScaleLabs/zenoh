@@ -35,6 +35,7 @@ use crate::{
         session::WeakSession,
     },
     handlers::Callback,
+    session::SessionClosedError,
 };
 
 #[cfg(feature = "internal")]
@@ -172,7 +173,6 @@ pub(crate) fn init(session: WeakSession) {
             let session = session.clone();
             move |q| on_admin_query(&session, &prefix, &prefix, q)
         }),
-        #[cfg(feature = "unstable")]
         None,
     );
 
@@ -187,7 +187,6 @@ pub(crate) fn init(session: WeakSession) {
             let session = session.clone();
             move |q| on_admin_query(&session, &adv_prefix, &prefix, q)
         }),
-        #[cfg(feature = "unstable")]
         None,
     );
 
@@ -199,7 +198,7 @@ pub(crate) fn init(session: WeakSession) {
         move |event: TransportEvent| {
             let key_expr = ke_prefix(&own_zid) / &ke_transport(&event.transport);
             let key_expr = KeyExpr::from(key_expr);
-            tracing::info!(
+            tracing::trace!(
                 "Publishing transport event: {:?} : {:?} on {}",
                 &event.kind,
                 &event.transport,
@@ -230,16 +229,13 @@ pub(crate) fn init(session: WeakSession) {
                 None,
                 None,
             ) {
-                tracing::error!("Unable to publish transport event: {}", e);
+                if e.downcast_ref::<SessionClosedError>().is_none() {
+                    tracing::error!("Unable to publish transport event: {}", e);
+                }
             }
         }
     });
-    if let Err(e) = session.declare_transport_events_listener_inner(
-        callback,
-        false,
-        #[cfg(feature = "unstable")]
-        None,
-    ) {
+    if let Err(e) = session.declare_transport_events_listener_inner(callback, false, None) {
         tracing::error!("Unable to subscribe to transport events: {}", e);
     }
 
@@ -253,14 +249,15 @@ pub(crate) fn init(session: WeakSession) {
             let transport_zid = &event.link.zid;
             let transport = session
                 .runtime()
-                .get_transports()
+                .get_transports_blocking()
+                .into_iter()
                 .find(|t| t.zid == *transport_zid);
 
             if let Some(transport) = transport {
                 let key_expr =
                     ke_prefix(&own_zid) / &ke_transport(&transport) / &ke_link(&event.link);
                 let key_expr = KeyExpr::from(key_expr);
-                tracing::info!(
+                tracing::trace!(
                     "Publishing link event: {:?} : {:?} on {}",
                     &event.kind,
                     &event.link,
@@ -290,20 +287,16 @@ pub(crate) fn init(session: WeakSession) {
                     None,
                     None,
                 ) {
-                    tracing::error!("Unable to publish link event: {}", e);
+                    if e.downcast_ref::<SessionClosedError>().is_none() {
+                        tracing::error!("Unable to publish link event: {}", e);
+                    }
                 }
             } else {
                 tracing::warn!("Unable to find transport for link event: {}", transport_zid);
             }
         }
     });
-    if let Err(e) = session.declare_transport_links_listener_inner(
-        callback,
-        false,
-        None,
-        #[cfg(feature = "unstable")]
-        None,
-    ) {
+    if let Err(e) = session.declare_transport_links_listener_inner(callback, false, None, None) {
         tracing::error!("Unable to subscribe to link events: {}", e);
     }
 }

@@ -23,9 +23,8 @@ use zenoh_result::ZResult;
 #[cfg(feature = "unstable")]
 use {zenoh_config::wrappers::EntityGlobalId, zenoh_protocol::core::EntityGlobalIdProto};
 
-#[cfg(feature = "unstable")]
-use crate::api::cancellation::SyncGroup;
 use crate::api::{
+    cancellation::SyncGroup,
     handlers::Callback,
     key_expr::KeyExpr,
     sample::{Locality, Sample},
@@ -77,13 +76,21 @@ pub(crate) struct SubscriberInner {
 #[must_use = "Resolvables do nothing unless you resolve them using `.await` or `zenoh::Wait::wait`"]
 pub struct SubscriberUndeclaration<Handler> {
     subscriber: Subscriber<Handler>,
-    #[cfg(feature = "unstable")]
     wait_callbacks: bool,
 }
 
+impl<Handler> fmt::Debug for SubscriberUndeclaration<Handler> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SubscriberUndeclaration")
+            .field("subscriber", &self.subscriber)
+            .field("wait_callbacks", &self.wait_callbacks)
+            .finish()
+    }
+}
+
 impl<Handler> SubscriberUndeclaration<Handler> {
+    #[zenoh_macros::internal_or_unstable]
     /// Block in undeclare operation until all currently running instances of subscriber callbacks (if any) return.
-    #[zenoh_macros::unstable]
     pub fn wait_callbacks(mut self) -> Self {
         self.wait_callbacks = true;
         self
@@ -97,7 +104,6 @@ impl<Handler> Resolvable for SubscriberUndeclaration<Handler> {
 impl<Handler> Wait for SubscriberUndeclaration<Handler> {
     fn wait(mut self) -> <Self as Resolvable>::To {
         self.subscriber.undeclare_impl()?;
-        #[cfg(feature = "unstable")]
         if self.wait_callbacks {
             self.subscriber.callback_sync_group.wait();
         }
@@ -153,12 +159,20 @@ impl<Handler> IntoFuture for SubscriberUndeclaration<Handler> {
 /// # }
 /// ```
 #[non_exhaustive]
-#[derive(Debug)]
 pub struct Subscriber<Handler> {
     pub(crate) inner: SubscriberInner,
     pub(crate) handler: Handler,
-    #[cfg(feature = "unstable")]
     pub(crate) callback_sync_group: SyncGroup,
+}
+
+impl<Handler> fmt::Debug for Subscriber<Handler> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Subscriber")
+            .field("inner", &self.inner)
+            .field("handler", &"..")
+            .field("callback_sync_group", &self.callback_sync_group)
+            .finish()
+    }
 }
 
 impl<Handler> Subscriber<Handler> {
@@ -265,7 +279,6 @@ impl<Handler: Send> UndeclarableSealed<()> for Subscriber<Handler> {
     fn undeclare_inner(self, _: ()) -> Self::Undeclaration {
         SubscriberUndeclaration {
             subscriber: self,
-            #[cfg(feature = "unstable")]
             wait_callbacks: false,
         }
     }

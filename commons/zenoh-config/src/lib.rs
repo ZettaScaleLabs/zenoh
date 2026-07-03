@@ -22,12 +22,15 @@
 #![allow(deprecated)]
 
 pub mod defaults;
+pub mod gateway;
 mod include;
 pub mod qos;
 pub mod wrappers;
 
 #[allow(unused_imports)]
 use std::convert::TryFrom;
+#[allow(unused_imports)]
+use std::str::FromStr;
 // This is a false positive from the rust analyser
 use std::{
     any::Any,
@@ -36,7 +39,7 @@ use std::{
     io::Read,
     net::SocketAddr,
     num::{NonZeroU16, NonZeroUsize},
-    ops::{self, Bound, Deref, RangeBounds},
+    ops::{self, Bound, Deref, DerefMut, RangeBounds},
     path::Path,
     sync::{Arc, Weak},
 };
@@ -51,12 +54,12 @@ use validated_struct::ValidatedMapAssociatedTypes;
 pub use validated_struct::{GetError, ValidatedMap};
 pub use wrappers::ZenohId;
 pub use zenoh_protocol::core::{
-    whatami, EndPoint, Locator, WhatAmI, WhatAmIMatcher, WhatAmIMatcherVisitor,
+    whatami, EndPoint, EndPoints, Locator, WhatAmI, WhatAmIMatcher, WhatAmIMatcherVisitor,
 };
 use zenoh_protocol::{
     core::{
         key_expr::{OwnedKeyExpr, OwnedNonWildKeyExpr},
-        Bits,
+        Bits, RegionName,
     },
     transport::{BatchSize, TransportSn},
 };
@@ -446,8 +449,12 @@ pub fn peer() -> Config {
 pub fn client<I: IntoIterator<Item = T>, T: Into<EndPoint>>(peers: I) -> Config {
     let mut config = Config::default();
     config.set_mode(Some(WhatAmI::Client)).unwrap();
-    config.connect.endpoints =
-        ModeDependentValue::Unique(peers.into_iter().map(|t| t.into()).collect());
+    config.connect.endpoints = ModeDependentValue::Unique(
+        peers
+            .into_iter()
+            .map(|t| EndPoints::Single(t.into()))
+            .collect(),
+    );
     config
 }
 
@@ -455,6 +462,48 @@ pub fn client<I: IntoIterator<Item = T>, T: Into<EndPoint>>(peers: I) -> Config 
 fn config_keys() {
     let c = Config::default();
     dbg!(Vec::from_iter(c.keys()));
+}
+
+/// Deprecated wrapper for `routing.router.peers_failover_brokering`.
+/// Emits a warning on deserialization (both full-config and `--cfg` paths).
+#[derive(Clone, Debug, Default)]
+struct DeprecatedPeersFailoverBrokering(Option<bool>);
+
+impl serde::Serialize for DeprecatedPeersFailoverBrokering {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for DeprecatedPeersFailoverBrokering {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        tracing::warn!(
+            "`routing.router.peers_failover_brokering` is deprecated and has no effect; \
+            please remove it from your configuration"
+        );
+        Option::<bool>::deserialize(deserializer).map(Self)
+    }
+}
+
+/// Deprecated wrapper for `routing.peer` (and its `mode` / `linkstate` sub-fields).
+/// Emits a warning on deserialization (both full-config and `--cfg` paths).
+#[derive(Clone, Debug, Default)]
+struct DeprecatedRoutingPeer(Option<Value>);
+
+impl serde::Serialize for DeprecatedRoutingPeer {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for DeprecatedRoutingPeer {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        tracing::warn!(
+            "routing.peer.mode` and `routing.peer.linkstate` are deprecated and have no effect; \
+            please remove them from your configuration"
+        );
+        Option::<Value>::deserialize(deserializer).map(Self)
+    }
 }
 
 validated_struct::validator! {
@@ -472,13 +521,15 @@ validated_struct::validator! {
         metadata: Value,
         /// The node's mode ("router" (default value in `zenohd`), "peer" or "client").
         mode: Option<whatami::WhatAmI>,
+        region_name: Option<RegionName>,
+        pub gateway: gateway::GatewayConf,
         /// Which zenoh nodes to connect to.
         pub connect:
         ConnectConfig {
             /// global timeout for full connect cycle
             pub timeout_ms: Option<ModeDependentValue<i64>>,
             /// The list of endpoints to connect to
-            pub endpoints: ModeDependentValue<Vec<EndPoint>>,
+            pub endpoints: ModeDependentValue<Vec<EndPoints>>,
             /// if connection timeout exceed, exit from application
             pub exit_on_failure: Option<ModeDependentValue<bool>>,
             pub retry: Option<connection_retry::ConnectionRetryModeDependentConf>,
@@ -572,11 +623,9 @@ validated_struct::validator! {
             /// The routing strategy to use in routers and it's configuration.
             pub router: #[derive(Default)]
             RouterRoutingConf {
-                /// When set to true a router will forward data between two peers
-                /// directly connected to it if it detects that those peers are not
-                /// connected to each other.
-                /// The failover brokering only works if gossip discovery is enabled.
-                peers_failover_brokering: Option<bool>,
+                /// Deprecated: this field has no effect and will be removed in a future version.
+                #[serde(default, skip_serializing)]
+                peers_failover_brokering: DeprecatedPeersFailoverBrokering,
                 /// Linkstate mode configuration.
                 pub linkstate: #[derive(Default)]
                 LinkstateConf {
@@ -587,15 +636,9 @@ validated_struct::validator! {
                     pub transport_weights: Vec<TransportWeight>,
                 },
             },
-            /// The routing strategy to use in peers and it's configuration.
-            pub peer: #[derive(Default)]
-            PeerRoutingConf {
-                /// The routing strategy to use in peers. ("peer_to_peer" or "linkstate").
-                /// This option needs to be set to the same value in all peers and routers of the subsystem.
-                mode: Option<String>,
-                /// Linkstate mode configuration (only taken into account if mode == "linkstate").
-                pub linkstate: LinkstateConf,
-            },
+            /// Deprecated: these fields have no effect and will be removed in a future version.
+            #[serde(default, skip_serializing)]
+            peer: DeprecatedRoutingPeer,
             /// The interests-based routing configuration.
             /// This configuration applies regardless of the mode (router, peer or client).
             pub interests: #[derive(Default)]
@@ -1197,6 +1240,34 @@ fn config_deser() {
         })
     );
 
+    let config = Config::from_deserializer(
+        &mut json5::Deserializer::from_str(
+            r#"{
+                mode: "client",
+                connect: {
+                    endpoints: [
+                        { strategy: "allOf", locators: ["tcp/127.0.0.1:7447?rel=0", "tcp/127.0.0.1:7448?rel=1"] },
+                    ]
+                }
+            }"#,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(*config.mode(), Some(WhatAmI::Client));
+    let endpoints = config.connect().endpoints().client().unwrap();
+    assert_eq!(endpoints.len(), 1);
+    assert_eq!(
+        endpoints[0],
+        EndPoints::Locators(zenoh_protocol::core::Locators {
+            strategy: zenoh_protocol::core::LocatorsStrategy::AllOf,
+            locators: vec![
+                EndPoint::from_str("tcp/127.0.0.1:7447?rel=0").unwrap(),
+                EndPoint::from_str("tcp/127.0.0.1:7448?rel=1").unwrap()
+            ]
+        })
+    );
+
     dbg!(Config::from_file("../../DEFAULT_CONFIG.json5").unwrap());
 }
 
@@ -1231,6 +1302,75 @@ impl Config {
         <Self as ValidatedMap>::insert_json5(self, key, value)
     }
 
+    /// Tries to insert or update a JSON5 object in an array using a field filter
+    /// in the last key segment.
+    ///
+    /// A key of the form `<array-key>/<field-name>=<field-value>` addresses an
+    /// object inside the array stored at `<array-key>`. The `<field-name>` part
+    /// is not a config child key; it is a filter applied to objects contained in
+    /// the array. For example, `qos/network/id=rule1` loads the array at
+    /// `qos/network` and matches objects whose `id` field is the string `rule1`.
+    ///
+    /// When a field filter is present, `value` must be a single JSON5 object
+    /// containing the same string field value. The object replaces the first
+    /// matching array element, or is appended if none exists.
+    ///
+    /// Returns `true` if the field-filter operation was applied. If `key` does
+    /// not contain a field filter, this returns `false` and leaves the config
+    /// unchanged.
+    pub fn try_insert_json5_array_item(
+        &mut self,
+        key: &str,
+        value: &str,
+    ) -> Result<bool, validated_struct::InsertionError> {
+        let Some((prefix, field_value)) = key.split_once('=') else {
+            return Ok(false);
+        };
+        let (array_key, field_name) =
+            prefix
+                .rsplit_once('/')
+                .ok_or(validated_struct::InsertionError::Str(
+                    "missing field filter",
+                ))?;
+        let new_item = json5::from_str::<serde_json::Value>(value)?;
+        if new_item
+            .as_object()
+            .and_then(|map| map.get(field_name))
+            .and_then(|v| v.as_str())
+            != Some(field_value)
+        {
+            return Err(validated_struct::InsertionError::String(format!(
+                "field filter mismatch: value must be an object containing {field_name}=\"{field_value}\""
+            )));
+        }
+        let current = serde_json::from_str::<serde_json::Value>(
+            &self
+                .get_json(array_key)
+                .map_err(|err| validated_struct::InsertionError::String(err.to_string()))?,
+        )?;
+        let serde_json::Value::Array(mut list) = current else {
+            return Err(validated_struct::InsertionError::Str("not an array"));
+        };
+        let mut new_item = Some(new_item);
+        for item in list.iter_mut() {
+            let serde_json::Value::Object(map) = item else {
+                return Err(validated_struct::InsertionError::Str(
+                    "array item is not an object",
+                ));
+            };
+
+            if map.get(field_name).and_then(|v| v.as_str()) == Some(field_value) {
+                *item = new_item.take().unwrap();
+                break;
+            }
+        }
+        if let Some(new_item) = new_item {
+            list.push(new_item);
+        }
+        <Self as ValidatedMap>::insert_json5(self, array_key, &serde_json::to_string(&list)?)?;
+        Ok(true)
+    }
+
     pub fn keys(&self) -> impl Iterator<Item = String> {
         <Self as ValidatedMap>::keys(self).into_iter()
     }
@@ -1259,6 +1399,44 @@ impl Config {
             )
         }
         self.plugins.remove(&key["plugins/".len()..])
+    }
+
+    /// Tries to remove objects from an array using a field filter in the last
+    /// key segment.
+    ///
+    /// A key of the form `<array-key>/<field-name>=<field-value>` removes every
+    /// object from the array stored at `<array-key>` whose `<field-name>` field
+    /// is the string `<field-value>`. The `<field-name>` part is not a config
+    /// child key; it is a filter applied to objects contained in the array. For
+    /// example, `qos/network/id=rule1` removes objects from `qos/network` where
+    /// `id == "rule1"`.
+    ///
+    /// Returns `true` if the field-filter operation was applied. If `key` does
+    /// not contain a field filter, this returns `false` and leaves the config
+    /// unchanged.
+    pub fn try_remove_json5_array_item<K: AsRef<str>>(&mut self, key: K) -> ZResult<bool> {
+        let key = key.as_ref();
+        let Some((prefix, field_value)) = key.split_once('=') else {
+            return Ok(false);
+        };
+        let (array_key, field_name) = prefix.rsplit_once('/').ok_or("missing field filter")?;
+        let current = serde_json::from_str::<serde_json::Value>(
+            &self.get_json(array_key).map_err(|err| zerror!("{err}"))?,
+        )?;
+        let serde_json::Value::Array(mut list) = current else {
+            bail!("not an array")
+        };
+        let prev_len = list.len();
+        list.retain(|item| match item {
+            serde_json::Value::Object(map) => {
+                map.get(field_name).and_then(|v| v.as_str()) != Some(field_value)
+            }
+            _ => true,
+        });
+        if list.len() != prev_len {
+            self.insert_json5(array_key, &serde_json::to_string(&list)?)?;
+        }
+        Ok(true)
     }
 
     pub fn get_retry_config(
@@ -1348,6 +1526,53 @@ impl Config {
         } else {
             LibLoader::empty()
         }
+    }
+
+    /// Expands the config with missing but required fields.
+    ///
+    /// This method should be called before a user-supplied config is used in the runtime.
+    ///
+    /// ## Invariants
+    ///
+    /// 1. All getter methods on [`ExpandedConfig`] are infallible (e.g. [`ExpandedConfig::id`] vs [`Config::id`]).
+    pub fn expanded(mut self) -> ExpandedConfig {
+        if self.id.is_none() {
+            self.set_id(Some(ZenohId::default())).unwrap();
+        }
+
+        if self.mode.is_none() {
+            self.set_mode(Some(WhatAmI::default())).unwrap();
+        }
+
+        ExpandedConfig(self)
+    }
+}
+
+#[doc(hidden)]
+#[derive(Debug, Clone)]
+pub struct ExpandedConfig(Config);
+
+impl ExpandedConfig {
+    pub fn id(&self) -> ZenohId {
+        self.0.id.unwrap()
+    }
+
+    pub fn mode(&self) -> WhatAmI {
+        self.0.mode.unwrap()
+    }
+}
+
+impl Deref for ExpandedConfig {
+    type Target = Config;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for ExpandedConfig {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
@@ -1800,6 +2025,12 @@ pub trait IConfig: Send + Sync {
 
 pub struct GenericConfig(Arc<dyn IConfig>);
 
+impl std::fmt::Debug for GenericConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("GenericConfig").field(&"..").finish()
+    }
+}
+
 impl Deref for GenericConfig {
     type Target = Arc<dyn IConfig>;
 
@@ -1883,5 +2114,48 @@ mod tests {
             Config::from_file(&path).unwrap().to_string(),
             expected_config.to_string()
         );
+    }
+
+    #[test]
+    fn insert_remove_json5_array_item_by_id() {
+        let mut config = Config::default();
+
+        assert!(config
+            .try_insert_json5_array_item(
+                "qos/network/id=item1",
+                r#"{
+                        id: "item1",
+                        messages: ["put"],
+                        key_exprs: ["**"],
+                        overwrite: { priority: "data" },
+                        flows: ["egress"]
+                    }"#,
+            )
+            .unwrap());
+        assert!(config
+            .try_insert_json5_array_item(
+                "qos/network/id=item1",
+                r#"{
+                        id: "item1",
+                        messages: ["put"],
+                        key_exprs: ["**"],
+                        overwrite: { priority: "data_high" },
+                        flows: ["egress"]
+                    }"#,
+            )
+            .unwrap());
+
+        let items: serde_json::Value =
+            serde_json::from_str(&config.get_json("qos/network").unwrap()).unwrap();
+        assert_eq!(items.as_array().unwrap().len(), 1);
+        assert_eq!(items[0]["id"], "item1");
+        assert_eq!(items[0]["overwrite"]["priority"], "data_high");
+
+        assert!(config
+            .try_remove_json5_array_item("qos/network/id=item1")
+            .unwrap());
+        let items: serde_json::Value =
+            serde_json::from_str(&config.get_json("qos/network").unwrap()).unwrap();
+        assert_eq!(items.as_array().unwrap().len(), 0);
     }
 }
