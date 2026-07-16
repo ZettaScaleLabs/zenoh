@@ -43,6 +43,8 @@ mod advanced_publisher;
 #[cfg(feature = "unstable")]
 mod advanced_subscriber;
 #[cfg(feature = "unstable")]
+mod fragmentation;
+#[cfg(feature = "unstable")]
 pub mod group;
 #[cfg(feature = "unstable")]
 mod publication_cache;

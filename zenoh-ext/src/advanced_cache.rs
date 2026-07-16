@@ -32,7 +32,7 @@ use zenoh::{
     Resolvable, Result as ZResult, Session, Wait, KE_ADV_PREFIX, KE_STARSTAR,
 };
 
-use crate::utils::WrappingSn;
+use crate::{fragmentation::FragmentedSample, utils::WrappingSn};
 
 pub(crate) static KE_UHLC: &keyexpr = ke!("uhlc");
 #[zenoh_macros::unstable]
@@ -220,7 +220,7 @@ fn decode_range(range: &str) -> (Bound<WrappingSn>, Bound<WrappingSn>) {
 /// [`AdvancedCache`].
 #[zenoh_macros::unstable]
 pub struct AdvancedCache {
-    cache: Arc<RwLock<VecDeque<Vec<Sample>>>>, // TODO use SingleOrVec
+    cache: Arc<RwLock<VecDeque<FragmentedSample>>>,
     max_samples: NonZeroUsize,
     _queryable: Queryable<()>,
     _token: Option<LivelinessToken>,
@@ -242,7 +242,7 @@ impl AdvancedCache {
             &key_expr,
             conf.history,
         );
-        let cache = Arc::new(RwLock::new(VecDeque::<Vec<Sample>>::new()));
+        let cache = Arc::new(RwLock::new(VecDeque::<FragmentedSample>::new()));
 
         // declare the queryable that will answer to queries on cache
         let queryable = conf
@@ -253,7 +253,6 @@ impl AdvancedCache {
                 let cache = cache.clone();
                 move |query| {
                     tracing::trace!("AdvancedCache{{}} Handle query {}", query.selector());
-                    // println!("GET {}", query.selector());
                     let srange = query
                         .parameters()
                         .get("_sn")
@@ -269,107 +268,73 @@ impl AdvancedCache {
                         .get("_max")
                         .and_then(|s| s.parse::<u32>().ok());
                     if let Ok(queue) = cache.read() {
-                        if let Some(max) = max {
-                            let mut samples = VecDeque::new();
-                            for sample in queue.iter() {
-                                // println!("CHECK SAMPLE {:?} vs range{:?}", sample[0].source_info(), srange);
-                                if srange == (Bound::Unbounded, Bound::Unbounded)
-                                    || sample[0]
-                                        .source_info()
-                                        .is_some_and(|si| srange.contains(&si.source_sn()))
-                                {
-                                    if let (Some(Ok(time_range)), Some(timestamp)) =
-                                        (query.parameters().time_range(), sample[0].timestamp())
-                                    {
-                                        if !time_range
-                                            .contains(timestamp.get_time().to_system_time())
-                                        {
-                                            continue;
-                                        }
-                                    }
-                                    for frag in sample.iter() {
-                                        // println!("CHECK FRAG {:?} vs range{:?}", frag.frag_info(), frange);
-                                        if frange == (Bound::Unbounded, Bound::Unbounded)
-                                            || frag
-                                                .frag_info()
-                                                .is_some_and(|i| frange.contains(&i.frag_num()))
-                                        {
-                                            samples.push_front(frag);
-                                        }
-                                    }
-                                    samples.truncate(max as usize); // TODO count frags as a single sample in the max count
+                        let srange_unbounded = srange == (Bound::Unbounded, Bound::Unbounded);
+                        let frange_unbounded = frange == (Bound::Unbounded, Bound::Unbounded);
+                        let frag_matches = |frag: &Sample| {
+                            frange_unbounded
+                                || frag
+                                    .frag_info()
+                                    .is_some_and(|i| frange.contains(&i.frag_num()))
+                        };
+                        let sample_matches = |sample: &&FragmentedSample| {
+                            let head = sample.iter_frags().next();
+                            if !(srange_unbounded
+                                || head
+                                    .and_then(|frag| frag.source_info())
+                                    .is_some_and(|si| srange.contains(&si.source_sn())))
+                            {
+                                return false;
+                            }
+                            if let (Some(Ok(time_range)), Some(timestamp)) = (
+                                query.parameters().time_range(),
+                                head.and_then(|frag| frag.timestamp()),
+                            ) {
+                                if !time_range.contains(timestamp.get_time().to_system_time()) {
+                                    return false;
                                 }
                             }
+                            frange_unbounded || sample.iter_frags().any(frag_matches)
+                        };
+                        let reply_frag = |frag: &Sample| {
+                            if let Err(e) = query
+                                .reply_sample(
+                                    SampleBuilder::from(frag.clone())
+                                        .congestion_control(
+                                            conf.history.replies_config.congestion_control,
+                                        )
+                                        .priority(conf.history.replies_config.priority)
+                                        .express(conf.history.replies_config.is_express)
+                                        .into(),
+                                )
+                                .wait()
+                            {
+                                tracing::warn!("AdvancedCache{{}} Error replying to query: {}", e);
+                            } else {
+                                tracing::trace!(
+                                    "AdvancedCache{{}} Replied to query {} with Sample{{info:{:?}, ts:{:?}}}",
+                                    query.selector(),
+                                    frag.source_info(),
+                                    frag.timestamp()
+                                );
+                            }
+                        };
+
+                        if let Some(max) = max {
+                            // Enfore max by accumulating matches into a bounded buffer
+                            let mut samples: VecDeque<&FragmentedSample> = VecDeque::new();
+                            for sample in queue.iter().filter(sample_matches) {
+                                samples.push_front(sample);
+                                samples.truncate(max as usize);
+                            }
                             for sample in samples.drain(..).rev() {
-                                // println!("REPLY {:?} {:?}", sample.source_info(), sample.frag_info());
-                                if let Err(e) = query
-                                    .reply_sample(
-                                        SampleBuilder::from(sample.clone())
-                                            .congestion_control(
-                                                conf.history.replies_config.congestion_control,
-                                            )
-                                            .priority(conf.history.replies_config.priority)
-                                            .express(conf.history.replies_config.is_express)
-                                            .into(),
-                                    )
-                                    .wait()
-                                {
-                                    tracing::warn!("AdvancedCache{{}} Error replying to query: {}", e);
-                                } else {
-                                    tracing::trace!(
-                                        "AdvancedCache{{}} Replied to query {} with Sample{{info:{:?}, ts:{:?}}}",
-                                        query.selector(),
-                                        sample.source_info(),
-                                        sample.timestamp()
-                                    );
+                                for frag in sample.iter_frags().filter(|f| frag_matches(f)) {
+                                    reply_frag(frag);
                                 }
                             }
                         } else {
-                            for sample in queue.iter() {
-                                if srange == (Bound::Unbounded, Bound::Unbounded)
-                                    || sample[0]
-                                        .source_info()
-                                        .is_some_and(|si| srange.contains(&si.source_sn()))
-                                {
-                                    if let (Some(Ok(time_range)), Some(timestamp)) =
-                                        (query.parameters().time_range(), sample[0].timestamp())
-                                    {
-                                        if !time_range
-                                            .contains(timestamp.get_time().to_system_time())
-                                        {
-                                            continue;
-                                        }
-                                    }
-                                    for frag in sample.iter() {
-                                        // println!("CHECK FRAG {:?} vs range{:?}", frag.frag_info(), frange);
-                                        if frange == (Bound::Unbounded, Bound::Unbounded)
-                                            || frag
-                                                .frag_info()
-                                                .is_some_and(|i| frange.contains(&i.frag_num()))
-                                        {
-                                            // println!("REPLY {:?} {:?}", sample.source_info(), sample.frag_info());
-                                            if let Err(e) = query
-                                                .reply_sample(
-                                                    SampleBuilder::from(frag.clone())
-                                                        .congestion_control(
-                                                            conf.history
-                                                                .replies_config
-                                                                .congestion_control,
-                                                        )
-                                                        .priority(
-                                                            conf.history.replies_config.priority,
-                                                        )
-                                                        .express(
-                                                            conf.history.replies_config.is_express,
-                                                        )
-                                                        .into(),
-                                                )
-                                                .wait()
-                                            {
-                                                tracing::warn!("Error replying to query: {}", e);
-                                            }
-                                        }
-                                    }
+                            for sample in queue.iter().filter(sample_matches) {
+                                for frag in sample.iter_frags().filter(|f| frag_matches(f)) {
+                                    reply_frag(frag);
                                 }
                             }
                         }
@@ -410,20 +375,19 @@ impl AdvancedCache {
             if queue.len() >= self.max_samples.get() {
                 queue.pop_front();
             }
-            queue.push_back(vec![sample]);
+            queue.push_back(FragmentedSample::single(sample));
         } else {
-            tracing::error!("Unable to take AdvancedPublisher cache write lock");
+            tracing::error!("AdvancedCache{{}} Unable to take AdvancedPublisher cache write lock");
         }
     }
 
     #[zenoh_macros::unstable]
     pub(crate) fn cache_fragments(&self, fragments: Vec<Sample>) {
-        // println!("cache_fragments {}", fragments.len());
         if let Ok(mut queue) = self.cache.write() {
             if queue.len() >= self.max_samples.get() {
                 queue.pop_front();
             }
-            queue.push_back(fragments);
+            queue.push_back(FragmentedSample::from_complete_vec(fragments));
         } else {
             tracing::error!("AdvancedCache{{}} Unable to take AdvancedPublisher cache write lock");
         }

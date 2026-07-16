@@ -239,6 +239,11 @@ impl<'a, 'b, 'c> AdvancedPublisherBuilder<'a, 'b, 'c> {
     }
 
     /// Fragment samples with payload larger than given size.
+    ///
+    /// Fragmentation requires sequence-number sequencing, which is enabled by
+    /// [`sample_miss_detection`](Self::sample_miss_detection). Enable sequencing
+    /// on the builder before resolving it; resolving a builder with fragmentation
+    /// but without sequencing will fail.
     #[zenoh_macros::unstable]
     #[inline]
     pub fn fragmentation(self, size: usize) -> Self {
@@ -387,6 +392,17 @@ impl<'a> AdvancedPublisher<'a> {
             Some(meta) => Some(meta?),
             None => None,
         };
+        if let Some(fragmentation_size) = conf.fragmentation {
+            if fragmentation_size == 0 {
+                bail!("fragmentation size must be non-zero");
+            }
+            if conf.sequencing != Sequencing::SequenceNumber {
+                bail!(
+                    "fragmentation requires sample_miss_detection (sequence-number sequencing) \
+                     for fragment reassembly on the subscriber side"
+                );
+            }
+        }
         tracing::debug!("Create AdvancedPublisher{{key_expr: {}}}", &key_expr);
 
         let publisher = conf

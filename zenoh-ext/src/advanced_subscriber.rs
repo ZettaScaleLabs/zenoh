@@ -57,6 +57,7 @@ use {
 
 use crate::{
     advanced_cache::{ke_liveliness, KE_UHLC},
+    fragmentation::{FragmentedSample, MAX_FRAGMENTS_DEFAULT},
     utils::WrappingSn,
     z_deserialize,
 };
@@ -199,6 +200,7 @@ pub struct AdvancedSubscriberBuilder<'a, 'b, 'c, Handler, const BACKGROUND: bool
     pub(crate) retransmission: Option<RecoveryConfig>,
     pub(crate) query_target: QueryTarget,
     pub(crate) query_timeout: Duration,
+    pub(crate) max_fragments: u32,
     pub(crate) history: Option<HistoryConfig>,
     pub(crate) liveliness: bool,
     pub(crate) meta_key_expr: Option<ZResult<KeyExpr<'c>>>,
@@ -238,6 +240,7 @@ impl<'a, 'b, Handler> AdvancedSubscriberBuilder<'a, 'b, '_, Handler> {
             retransmission: None,
             query_target: QueryTarget::All,
             query_timeout: Duration::from_secs(10),
+            max_fragments: MAX_FRAGMENTS_DEFAULT,
             history: None,
             liveliness: false,
             meta_key_expr: None,
@@ -287,6 +290,7 @@ impl<'a, 'b, 'c> AdvancedSubscriberBuilder<'a, 'b, 'c, DefaultHandler> {
             retransmission: self.retransmission,
             query_target: self.query_target,
             query_timeout: self.query_timeout,
+            max_fragments: self.max_fragments,
             history: self.history,
             liveliness: self.liveliness,
             meta_key_expr: self.meta_key_expr,
@@ -308,6 +312,7 @@ impl<'a, 'b, 'c> AdvancedSubscriberBuilder<'a, 'b, 'c, Callback<Sample>> {
             retransmission: self.retransmission,
             query_target: self.query_target,
             query_timeout: self.query_timeout,
+            max_fragments: self.max_fragments,
             history: self.history,
             liveliness: self.liveliness,
             meta_key_expr: self.meta_key_expr,
@@ -356,6 +361,19 @@ impl<'a, 'c, Handler, const BACKGROUND: bool>
         self
     }
 
+    /// Set the maximum number of fragments a single sample may carry.
+    ///
+    /// Fragments advertised with a [`FragInfo::frag_count`](crate::sample::FragInfo::frag_count)
+    /// larger than this value are rejected.
+    ///
+    /// Resolving a builder with `max` set to zero will fail.
+    #[zenoh_macros::unstable]
+    #[inline]
+    pub fn max_fragments(mut self, max: u32) -> Self {
+        self.max_fragments = max;
+        self
+    }
+
     /// Enable query for historical data.
     ///
     /// History can only be retransmitted by [`AdvancedPublishers`](crate::AdvancedPublisher) that enable [`cache`](crate::AdvancedPublisherBuilder::cache).
@@ -395,6 +413,7 @@ impl<'a, 'c, Handler, const BACKGROUND: bool>
             retransmission: self.retransmission,
             query_target: self.query_target,
             query_timeout: self.query_timeout,
+            max_fragments: self.max_fragments,
             history: self.history,
             liveliness: self.liveliness,
             meta_key_expr: self.meta_key_expr.map(|s| s.map(|s| s.into_owned())),
@@ -478,6 +497,7 @@ struct State {
     max_history_depth: usize,
     query_target: QueryTarget,
     query_timeout: Duration,
+    max_fragments: u32,
     // Callback must be dropped when the underlying subscriber is undeclared
     // (for example when session is closed), in order to "close" the advanced
     // subscriber receiver, hence the `Option`.
@@ -506,7 +526,7 @@ impl State {
 struct SourceState<T> {
     last_delivered: Option<T>,
     pending_queries: u64,
-    pending_samples: BTreeMap<T, Vec<Option<Sample>>>, // TODO use SingleOrVec
+    pending_samples: BTreeMap<T, FragmentedSample>,
     /// Latest access instant used for garbage collection with retention period
     latest_access: Instant,
     /// Periodic queries task
@@ -634,35 +654,129 @@ impl<Receiver> std::ops::DerefMut for AdvancedSubscriber<Receiver> {
         &mut self.receiver
     }
 }
-fn defragment(mut fragments: Vec<Option<Sample>>) -> Option<Sample> {
-    if fragments.len() == 1 {
-        return fragments.pop().unwrap();
-    }
-    if let Some(sample) = fragments[0].clone() {
-        let mut bytes: Vec<u8> = vec![];
-        for frag in fragments.drain(..) {
-            if let Some(frag) = frag {
-                bytes.extend(frag.payload().to_bytes().iter());
-            } else {
-                return None;
+
+/// Insert a sample (fragmented or not) into the per-source pending map.
+///
+/// Non-fragmented samples are stored as [`FragmentedSample::Single`]. Fragmented
+/// samples are added to the partial slot for their sequence number, creating it
+/// if necessary. The function validates the fragment metadata:
+/// * `frag_num` must be strictly smaller than `frag_count`;
+/// * `frag_count` must not exceed `max_fragments` (DoS/memory bound);
+/// * all fragments of a given sequence number must agree on `frag_count`.
+///
+/// Returns `Ok(true)` when the insertion created a new sequence-number slot.
+/// This is used by the caller to decide whether to start a fragment-recovery
+/// timer for a newly seen fragmented sample.
+#[cfg(feature = "unstable")]
+fn insert_fragment(
+    state: &mut SourceState<WrappingSn>,
+    sample: Sample,
+    source_info: &SourceInfo,
+    max_fragments: u32,
+) -> Result<bool, ()> {
+    let sn: WrappingSn = source_info.source_sn().into();
+    match sample.frag_info() {
+        None => {
+            let new = !state.pending_samples.contains_key(&sn);
+            state
+                .pending_samples
+                .insert(sn, FragmentedSample::single(sample));
+            Ok(new)
+        }
+        Some(fi) => {
+            let frag_count = fi.frag_count();
+            let frag_num = fi.frag_num();
+            let new = !state.pending_samples.contains_key(&sn);
+            match state.pending_samples.entry(sn) {
+                btree_map::Entry::Vacant(v) => {
+                    match FragmentedSample::from_first_fragment(
+                        sample,
+                        frag_num,
+                        frag_count,
+                        max_fragments,
+                    ) {
+                        Ok(fs) => {
+                            v.insert(fs);
+                            Ok(new)
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "AdvancedSubscriber: rejected fragment (sn={sn}): {e:?}"
+                            );
+                            Err(())
+                        }
+                    }
+                }
+                btree_map::Entry::Occupied(mut o) => {
+                    if let Err(e) = o.get_mut().insert(sample, frag_num, frag_count) {
+                        tracing::warn!("AdvancedSubscriber: rejected fragment (sn={sn}): {e:?}");
+                        Err(())
+                    } else {
+                        Ok(new)
+                    }
+                }
             }
         }
-        return Some(sample.with_payload(bytes));
     }
-    None
+}
+
+/// Enforce the subscriber's `max_history_depth` on the pending sample map.
+///
+/// `handle_sample` buffers every incoming sequenced sample, including fragments.
+/// If the buffer grows past the configured depth we drop the oldest entry so
+/// memory stays bounded. Complete samples are delivered (and any consecutive
+/// complete successors are flushed via [`deliver_and_flush`]); incomplete
+/// samples are reported as missed and discarded.
+///
+/// This is called after every insertion because fragments may arrive slowly and
+/// the head entry could stay incomplete for an unbounded time otherwise.
+#[zenoh_macros::unstable]
+fn maybe_evict_oldest(
+    state: &mut SourceState<WrappingSn>,
+    callback: &Callback<Sample>,
+    miss_handlers: &HashMap<usize, Callback<Miss>>,
+    source_id: EntityGlobalId,
+    max_history_depth: usize,
+) {
+    // Use `>` so that a single in-flight fragmented sample is not evicted
+    // immediately under `max_history_depth == 1`.  Memory is still bounded by
+    // the per-slot `max_fragments` limit.
+    // TODO: check if `max_history_depth` can be 0
+    while state.pending_samples.len() > max_history_depth.max(1) {
+        let (sn, fs) = state
+            .pending_samples
+            .pop_first()
+            .expect("non-empty pending_samples");
+        if let Some(sample) = fs.into_sample() {
+            deliver_and_flush(sample, sn, callback, state);
+        } else {
+            tracing::info!(
+                "AdvancedSubscriber: evicted incomplete sample at sn={sn} due to max_history_depth={max_history_depth}"
+            );
+            for miss_callback in miss_handlers.values() {
+                miss_callback.call(Miss {
+                    source: source_id,
+                    nb: 1,
+                });
+            }
+        }
+    }
 }
 
 #[zenoh_macros::unstable]
 fn pop_and_defrag_first<T>(
-    pending_samples: &mut BTreeMap<T, Vec<Option<Sample>>>,
+    pending_samples: &mut BTreeMap<T, FragmentedSample>,
 ) -> Option<(T, Sample)>
 where
     T: Ord,
 {
     if let Some(entry) = pending_samples.first_entry() {
-        if !entry.get().iter().any(Option::is_none) {
-            let (k, frags) = entry.remove_entry();
-            return Some((k, defragment(frags).unwrap()));
+        if entry.get().is_complete() {
+            let (k, v) = entry.remove_entry();
+            return Some((
+                k,
+                v.into_sample().expect("FragmentedSample is_complete=true"),
+            ));
         }
     }
     None
@@ -670,16 +784,15 @@ where
 
 #[zenoh_macros::unstable]
 fn remove_and_defrag<T>(
-    pending_samples: &mut BTreeMap<T, Vec<Option<Sample>>>,
+    pending_samples: &mut BTreeMap<T, FragmentedSample>,
     key: T,
 ) -> Option<Sample>
 where
     T: Ord,
 {
     if let btree_map::Entry::Occupied(entry) = pending_samples.entry(key) {
-        if !entry.get().iter().any(Option::is_none) {
-            let frags = entry.remove();
-            return Some(defragment(frags).unwrap());
+        if entry.get().is_complete() {
+            return Some(entry.remove().into_sample().unwrap());
         }
     }
     None
@@ -709,138 +822,132 @@ fn handle_sample(states: &mut State, sample: Sample) -> (bool, bool) {
     };
     if let Some(source_info) = sample.source_info().cloned() {
         let mut new_source = false;
-        let state = states
-            .sequenced_states
-            .get_or_insert_mut(*source_info.source_id(), || {
-                new_source = true;
-                Default::default()
-            });
-        let mut new_frag = false;
-        if state.last_delivered.is_none() && states.global_pending_queries != 0 {
-            if let Some((frag_count, frag_num)) =
-                sample.frag_info().map(|i| (i.frag_count(), i.frag_num()))
-            {
-                if frag_num >= frag_count {
-                    tracing::error!(
-                        "Received fragment with frag_count={} and frag_num={}. Ignore.",
-                        frag_count,
-                        frag_num
-                    );
-                    return (false, false);
-                }
-                let entry = state.pending_samples.entry(source_info.source_sn().into());
-                new_frag = matches!(&entry, btree_map::Entry::Vacant(_));
-                let frags = entry.or_default();
-                frags.resize(frag_count as usize, None);
-                frags[frag_num as usize] = Some(sample);
-                if state.pending_samples.len() >= states.max_history_depth {
-                    if let Some((sn, sample)) = pop_and_defrag_first(&mut state.pending_samples) {
-                        deliver_and_flush(sample, sn, callback, state);
+        let source_id = *source_info.source_id();
+        let sn: WrappingSn = source_info.source_sn().into();
+        let is_fragmented = sample.frag_info().is_some();
+        let global_pending_queries = states.global_pending_queries;
+        let retransmission = states.retransmission;
+        let max_history_depth = states.max_history_depth;
+        let max_fragments = states.max_fragments;
+        let miss_handlers = &states.miss_handlers;
+        let state = states.sequenced_states.get_or_insert_mut(source_id, || {
+            new_source = true;
+            Default::default()
+        });
+
+        let new_frag = if state.last_delivered.is_none() && global_pending_queries != 0 {
+            // Late joiner: buffer until the historical query completes.
+            if is_fragmented {
+                match insert_fragment(state, sample, &source_info, max_fragments) {
+                    Ok(new_frag) => {
+                        maybe_evict_oldest(
+                            state,
+                            callback,
+                            miss_handlers,
+                            source_id,
+                            max_history_depth,
+                        );
+                        new_frag
                     }
+                    Err(()) => false,
                 }
+            } else if max_history_depth == 1 {
+                state.last_delivered = Some(sn);
+                callback.call(sample);
+                false
             } else {
-                // Avoid going through the Map if max_history_depth == 1
-                if states.max_history_depth == 1 {
-                    state.last_delivered = Some(source_info.source_sn().into());
-                    callback.call(sample);
-                } else {
-                    state
-                        .pending_samples
-                        .insert(source_info.source_sn().into(), vec![Some(sample)]);
-                    if state.pending_samples.len() >= states.max_history_depth {
-                        if let Some((sn, sample)) = pop_and_defrag_first(&mut state.pending_samples)
-                        {
-                            deliver_and_flush(sample, sn, callback, state);
-                        }
-                    }
-                }
+                state
+                    .pending_samples
+                    .insert(sn, FragmentedSample::single(sample));
+                maybe_evict_oldest(state, callback, miss_handlers, source_id, max_history_depth);
+                false
             }
-        } else if state.last_delivered.is_some()
-            && source_info.source_sn() != state.last_delivered.unwrap() + 1
-        {
-            if source_info.source_sn() > state.last_delivered.unwrap() {
-                if states.retransmission {
-                    if let Some((frag_count, frag_num)) =
-                        sample.frag_info().map(|i| (i.frag_count(), i.frag_num()))
-                    {
-                        if frag_num >= frag_count {
-                            tracing::error!(
-                                "Received fragment with frag_count={} and frag_num={}. Ignore.",
-                                frag_count,
-                                frag_num
-                            );
-                            return (false, false);
-                        }
-                        let entry = state.pending_samples.entry(source_info.source_sn().into());
-                        new_frag = matches!(&entry, btree_map::Entry::Vacant(_));
-                        let frags = entry.or_default();
-                        frags.resize(frag_count as usize, None);
-                        frags[frag_num as usize] = Some(sample);
+        } else if state.last_delivered.is_some() && sn != state.last_delivered.unwrap() + 1 {
+            if sn > state.last_delivered.unwrap() {
+                if retransmission {
+                    let new_frag = if is_fragmented {
+                        insert_fragment(state, sample, &source_info, max_fragments)
+                            .unwrap_or_default()
                     } else {
                         state
                             .pending_samples
-                            .insert(source_info.source_sn().into(), vec![Some(sample)]);
+                            .insert(sn, FragmentedSample::single(sample));
+                        false
+                    };
+                    // A recovered fragment may close the gap; try to flush.
+                    if let Some(last) = state.last_delivered {
+                        if let Some(s) = remove_and_defrag(&mut state.pending_samples, last + 1) {
+                            deliver_and_flush(s, last + 1, callback, state);
+                        }
                     }
+                    maybe_evict_oldest(
+                        state,
+                        callback,
+                        miss_handlers,
+                        source_id,
+                        max_history_depth,
+                    );
+                    new_frag
                 } else {
+                    let missed = sn - state.last_delivered.unwrap() - 1;
                     tracing::info!(
                         "Sample missed: missed {} samples from {:?}.",
-                        source_info.source_sn() - state.last_delivered.unwrap() - 1,
-                        source_info.source_id(),
+                        missed,
+                        source_id,
                     );
-                    for miss_callback in states.miss_handlers.values() {
+                    for miss_callback in miss_handlers.values() {
                         miss_callback.call(Miss {
-                            source: *source_info.source_id(),
-                            nb: source_info.source_sn() - state.last_delivered.unwrap() - 1,
+                            source: source_id,
+                            nb: missed,
                         });
                     }
-                    if let Some((frag_count, frag_num)) =
-                        sample.frag_info().map(|i| (i.frag_count(), i.frag_num()))
-                    {
-                        if frag_num >= frag_count {
-                            tracing::error!(
-                                "Received fragment with frag_count={} and frag_num={}. Ignore.",
-                                frag_count,
-                                frag_num
-                            );
-                            return (false, false);
-                        }
-                        let entry = state.pending_samples.entry(source_info.source_sn().into());
-                        new_frag = matches!(&entry, btree_map::Entry::Vacant(_));
-                        let frags = entry.or_default();
-                        frags.resize(frag_count as usize, None);
-                        frags[frag_num as usize] = Some(sample);
-                        if let Some((sn, sample)) = pop_and_defrag_first(&mut state.pending_samples)
-                        {
-                            deliver_and_flush(sample, sn, callback, state);
+                    if is_fragmented {
+                        let _ = insert_fragment(state, sample, &source_info, max_fragments);
+                        maybe_evict_oldest(
+                            state,
+                            callback,
+                            miss_handlers,
+                            source_id,
+                            max_history_depth,
+                        );
+                        if let Some((k, s)) = pop_and_defrag_first(&mut state.pending_samples) {
+                            deliver_and_flush(s, k, callback, state);
                         }
                     } else {
                         callback.call(sample);
-                        state.last_delivered = Some(source_info.source_sn().into());
+                        state.last_delivered = Some(sn);
                     }
+                    false
                 }
-            }
-        } else if let Some((frag_count, frag_num)) =
-            sample.frag_info().map(|i| (i.frag_count(), i.frag_num()))
-        {
-            if frag_num >= frag_count {
-                tracing::error!(
-                    "Received fragment with frag_count={} and frag_num={}. Ignore.",
-                    frag_count,
-                    frag_num
-                );
-                return (false, false);
-            }
-            let entry = state.pending_samples.entry(source_info.source_sn().into());
-            new_frag = matches!(&entry, btree_map::Entry::Vacant(_));
-            let frags = entry.or_default();
-            frags.resize(frag_count as usize, None);
-            frags[frag_num as usize] = Some(sample);
-            if let Some((sn, sample)) = pop_and_defrag_first(&mut state.pending_samples) {
-                deliver_and_flush(sample, sn, callback, state);
+            } else {
+                // Duplicate or old sample.
+                false
             }
         } else {
-            deliver_and_flush(sample, source_info.source_sn(), callback, state);
-        }
+            // In-order sample.
+            if is_fragmented {
+                match insert_fragment(state, sample, &source_info, max_fragments) {
+                    Ok(new_frag) => {
+                        maybe_evict_oldest(
+                            state,
+                            callback,
+                            miss_handlers,
+                            source_id,
+                            max_history_depth,
+                        );
+                        if let Some((k, s)) = pop_and_defrag_first(&mut state.pending_samples) {
+                            deliver_and_flush(s, k, callback, state);
+                        }
+                        new_frag
+                    }
+                    Err(()) => false,
+                }
+            } else {
+                deliver_and_flush(sample, sn, callback, state);
+                false
+            }
+        };
+
         state.latest_access = Instant::now();
         (new_source, new_frag)
     } else if let Some(timestamp) = sample.timestamp() {
@@ -857,7 +964,7 @@ fn handle_sample(states: &mut State, sample: Sample) -> (bool, bool) {
                 state
                     .pending_samples
                     .entry(*timestamp)
-                    .or_insert(vec![Some(sample)]);
+                    .or_insert(FragmentedSample::single(sample));
                 if state.pending_samples.len() >= states.max_history_depth {
                     flush_timestamped_source(state, Some(callback));
                 }
@@ -1003,29 +1110,6 @@ async fn gc_task(statesref: Weak<Mutex<State>>, retention_period: Duration) {
     }
 }
 
-fn missing_ranges(frags: &[Option<Sample>]) -> Vec<(Option<u32>, Option<u32>)> {
-    let mut missing_ranges: Vec<(Option<u32>, Option<u32>)> = vec![];
-    for (i, frag) in frags.iter().enumerate() {
-        if missing_ranges.is_empty() {
-            if frag.is_none() {
-                missing_ranges.push((Some(i as u32), None));
-            }
-        } else {
-            let last_index = missing_ranges.len() - 1;
-            if frag.is_none() {
-                if missing_ranges[last_index].1.is_some() {
-                    missing_ranges.push((Some(i as u32), None));
-                }
-            } else if missing_ranges[last_index].0.is_some()
-                && missing_ranges[last_index].1.is_none()
-            {
-                missing_ranges[last_index].1 = Some((i - 1) as u32);
-            }
-        }
-    }
-    missing_ranges
-}
-
 fn spawn_frag_recovery(
     statesref: Arc<Mutex<State>>,
     key_expr: KeyExpr<'static>,
@@ -1039,7 +1123,7 @@ fn spawn_frag_recovery(
             let states = &mut *lock;
             if let Some(state) = states.sequenced_states.get_mut(&source_id) {
                 if let Some(frags) = state.pending_samples.get(&source_sn.into()) {
-                    let missing_ranges = missing_ranges(frags);
+                    let missing_ranges = frags.missing_ranges();
                     state.pending_queries += missing_ranges.len() as u64;
                     let session = states.session.clone();
                     let query_target = states.query_target;
@@ -1107,6 +1191,9 @@ impl<Handler> AdvancedSubscriber<Handler> {
                 bail!("max_age must not be zero")
             }
         }
+        if conf.max_fragments == 0 {
+            bail!("max_fragments must not be zero")
+        }
         let (callback, receiver) = conf.handler.into_handler();
         let key_expr = conf.key_expr?;
         let meta = match conf.meta_key_expr {
@@ -1139,6 +1226,7 @@ impl<Handler> AdvancedSubscriber<Handler> {
                 max_history_depth,
                 query_target: conf.query_target,
                 query_timeout: conf.query_timeout,
+                max_fragments: conf.max_fragments,
                 callback: Some(callback),
                 miss_handlers: HashMap::new(),
                 token: None,
@@ -1183,7 +1271,7 @@ impl<Handler> AdvancedSubscriber<Handler> {
                                     .pending_samples
                                     .values()
                                     .next()
-                                    .map(|fs| fs.iter().any(|f| f.is_none()))
+                                    .map(|fs| !fs.is_complete())
                                     .unwrap())
                         // TODO
                         {
@@ -1790,35 +1878,36 @@ fn flush_sequenced_source(
     if state.pending_queries == 0 && !state.pending_samples.is_empty() {
         let mut pending_samples = BTreeMap::new();
         std::mem::swap(&mut state.pending_samples, &mut pending_samples);
-        for (seq_num, mut sample) in pending_samples {
-            if let Some(sample) = sample.pop().flatten() {
-                match state.last_delivered {
-                    None => {
-                        state.last_delivered = Some(seq_num);
-                        callback.call(sample);
+        for (seq_num, frag_sample) in pending_samples {
+            let Some(sample) = frag_sample.into_sample() else {
+                continue;
+            };
+            match state.last_delivered {
+                None => {
+                    state.last_delivered = Some(seq_num);
+                    callback.call(sample);
+                }
+                Some(last) if seq_num == last + 1 => {
+                    state.last_delivered = Some(seq_num);
+                    callback.call(sample);
+                }
+                Some(last) if seq_num > last + 1 => {
+                    tracing::info!(
+                        "Sample missed: missed {} samples from {:?}.",
+                        seq_num - last - 1,
+                        source_id,
+                    );
+                    for miss_callback in miss_handlers.values() {
+                        miss_callback.call(Miss {
+                            source: *source_id,
+                            nb: seq_num - last - 1,
+                        })
                     }
-                    Some(last) if seq_num == last + 1 => {
-                        state.last_delivered = Some(seq_num);
-                        callback.call(sample);
-                    }
-                    Some(last) if seq_num > last + 1 => {
-                        tracing::info!(
-                            "Sample missed: missed {} samples from {:?}.",
-                            seq_num - last - 1,
-                            source_id,
-                        );
-                        for miss_callback in miss_handlers.values() {
-                            miss_callback.call(Miss {
-                                source: *source_id,
-                                nb: seq_num - last - 1,
-                            })
-                        }
-                        state.last_delivered = Some(seq_num);
-                        callback.call(sample);
-                    }
-                    _ => {
-                        // duplicate
-                    }
+                    state.last_delivered = Some(seq_num);
+                    callback.call(sample);
+                }
+                _ => {
+                    // duplicate
                 }
             }
         }
@@ -1835,8 +1924,8 @@ fn flush_timestamped_source(
         return;
     };
     if state.pending_queries == 0 && !state.pending_samples.is_empty() {
-        for (timestamp, mut sample) in std::mem::take(&mut state.pending_samples) {
-            if let Some(sample) = sample.pop().flatten() {
+        for (timestamp, frag_sample) in std::mem::take(&mut state.pending_samples) {
+            if let Some(sample) = frag_sample.into_sample() {
                 if state
                     .last_delivered
                     .map(|last| timestamp > last)
