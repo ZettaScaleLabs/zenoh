@@ -27,7 +27,8 @@ use zenoh::{
         bail,
         runtime::ZRuntime,
         traits::{
-            EncodingBuilderTrait, QoSBuilderTrait, SampleBuilderTrait, TimestampBuilderTrait,
+            EncodingBuilderTrait, FragInfoBuilderTrait, QoSBuilderTrait, SampleBuilderTrait,
+            TimestampBuilderTrait,
         },
         TerminatableTask,
     },
@@ -758,13 +759,6 @@ impl<P> SampleBuilderTrait for AdvancedPublicationBuilder<'_, P> {
             ..self
         }
     }
-    #[zenoh_macros::unstable]
-    fn frag_info<TF: Into<Option<FragInfo>>>(self, frag_info: TF) -> Self {
-        Self {
-            builder: self.builder.frag_info(frag_info),
-            ..self
-        }
-    }
     /// Sets an optional attachment to be sent along with the publication.
     ///
     /// The argument is converted via [`OptionZBytes`], which supports both `T: Into<ZBytes>`
@@ -774,6 +768,17 @@ impl<P> SampleBuilderTrait for AdvancedPublicationBuilder<'_, P> {
         let attachment: OptionZBytes = attachment.into();
         Self {
             builder: self.builder.attachment(attachment),
+            ..self
+        }
+    }
+}
+
+#[zenoh_macros::unstable]
+impl<P> FragInfoBuilderTrait for AdvancedPublicationBuilder<'_, P> {
+    #[zenoh_macros::unstable]
+    fn frag_info<TF: Into<Option<FragInfo>>>(self, frag_info: TF) -> Self {
+        Self {
+            builder: self.builder.frag_info(frag_info),
             ..self
         }
     }
@@ -814,43 +819,49 @@ impl Wait for AdvancedPublisherPutBuilder<'_> {
             );
             self.builder = self.builder.source_info(info);
         }
-        if self.publisher.fragmentation.is_some()
-            && self.builder.payload_ref().len() > self.publisher.fragmentation.unwrap()
-        {
+        if let Some(size) = self.publisher.fragmentation {
+            // TODO: check payload length before materializing with `to_bytes()`
+            // to avoid a copy for small multi-slice payloads.
             let bytes = self.builder.payload_ref().to_bytes();
-            #[allow(clippy::unnecessary_unwrap)] // TODO
-            let chunks = bytes.chunks(self.publisher.fragmentation.unwrap());
-            let frag_count = chunks.len();
-            let mut fragments = vec![];
-            let mut builders = vec![];
-            for (i, chunk) in chunks.enumerate() {
-                let mut builder = self
-                    .builder
-                    .clone()
-                    .payload(chunk)
-                    .frag_info(FragInfo::new(frag_count as u32, i as u32));
-                if let Some(hlc) = self.publisher.publisher.session().hlc() {
-                    builder = builder.timestamp(hlc.new_timestamp());
+            if bytes.len() > size {
+                let chunks = bytes.chunks(size);
+                let frag_count = chunks.len();
+                let mut fragments = vec![];
+                let mut builders = vec![];
+                for (i, chunk) in chunks.enumerate() {
+                    let mut builder = self
+                        .builder
+                        .clone()
+                        .payload(chunk)
+                        .frag_info(FragInfo::new(frag_count as u32, i as u32));
+                    if let Some(hlc) = self.publisher.publisher.session().hlc() {
+                        builder = builder.timestamp(hlc.new_timestamp());
+                    }
+                    fragments.push(zenoh::sample::Sample::from(&builder));
+                    builders.push(builder);
                 }
-                fragments.push(zenoh::sample::Sample::from(&builder));
-                builders.push(builder);
+                if let Some(cache) = self.publisher.cache.as_ref() {
+                    // FIXME: each fragment carries the full attachment/timestamp
+                    // of the original sample; `cache_fragments` stores them
+                    // fragment-by-fragment. The cache currently replies with one
+                    // fragment per reply, so the same attachment is duplicated on
+                    // the wire. Decide whether history should store one canonical
+                    // reassembled sample and reply whole samples instead.
+                    cache.cache_fragments(fragments);
+                }
+                for builder in builders {
+                    let _ = builder.wait();
+                }
+                return Ok(());
             }
-            if let Some(cache) = self.publisher.cache.as_ref() {
-                cache.cache_fragments(fragments);
-            }
-            for builder in builders {
-                let _ = builder.wait();
-            }
-            Ok(())
-        } else {
-            if let Some(hlc) = self.publisher.publisher.session().hlc() {
-                self.builder = self.builder.timestamp(hlc.new_timestamp());
-            }
-            if let Some(cache) = self.publisher.cache.as_ref() {
-                cache.cache_sample(zenoh::sample::Sample::from(&self.builder));
-            }
-            self.builder.wait()
         }
+        if let Some(hlc) = self.publisher.publisher.session().hlc() {
+            self.builder = self.builder.timestamp(hlc.new_timestamp());
+        }
+        if let Some(cache) = self.publisher.cache.as_ref() {
+            cache.cache_sample(zenoh::sample::Sample::from(&self.builder));
+        }
+        self.builder.wait()
     }
 }
 

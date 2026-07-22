@@ -37,7 +37,7 @@ use crate::api::{
 pub type SourceSn = u32;
 
 #[zenoh_macros::unstable]
-/// The fragment count of the [`Sample`] fragment.
+/// The total number of fragments for the [`Sample`] fragment.
 pub type FragCount = u32;
 
 /// The fragment number of the [`Sample`] fragment.
@@ -51,7 +51,6 @@ pub type FragNum = u32;
 /// publishers's [`allowed_destination`](crate::pubsub::PublisherBuilder::allowed_destination) and
 /// querier's [`allowed_destination`](crate::query::QuerierBuilder::allowed_destination) settings
 /// which allows to restrict the connection to only local or only remote entities.
-/// The total number of fragments for the [`Sample`] fragment.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Locality {
     /// Request / serve data only to entities in the same session

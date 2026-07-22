@@ -295,6 +295,10 @@ impl AdvancedCache {
                             }
                             frange_unbounded || sample.iter_frags().any(frag_matches)
                         };
+                        // FIXME: the cache stores fragments (with duplicated
+                        // attachments/timestamps per fragment) and replies with
+                        // one fragment per reply. Reassemble the original sample
+                        // here and reply a single whole sample instead.
                         let reply_frag = |frag: &Sample| {
                             if let Err(e) = query
                                 .reply_sample(
@@ -391,5 +395,83 @@ impl AdvancedCache {
         } else {
             tracing::error!("AdvancedCache{{}} Unable to take AdvancedPublisher cache write lock");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ops::Bound;
+
+    use super::decode_range;
+    use crate::utils::WrappingSn;
+
+    #[test]
+    fn decode_range_bounded() {
+        assert_eq!(
+            decode_range("2..3"),
+            (
+                Bound::Included(WrappingSn(2)),
+                Bound::Included(WrappingSn(3))
+            )
+        );
+    }
+
+    #[test]
+    fn decode_range_start_only() {
+        assert_eq!(
+            decode_range("2.."),
+            (Bound::Included(WrappingSn(2)), Bound::Unbounded)
+        );
+    }
+
+    #[test]
+    fn decode_range_end_only() {
+        assert_eq!(
+            decode_range("..3"),
+            (Bound::Unbounded, Bound::Included(WrappingSn(3)))
+        );
+    }
+
+    #[test]
+    fn decode_range_unbounded() {
+        assert_eq!(decode_range(".."), (Bound::Unbounded, Bound::Unbounded));
+    }
+
+    #[test]
+    fn decode_range_empty() {
+        assert_eq!(decode_range(""), (Bound::Unbounded, Bound::Unbounded));
+    }
+
+    // A bare value with no `..` separator falls back to `unwrap_or(start)`,
+    // yielding a singleton range `Included(v)..=Included(v)`.
+    #[test]
+    fn decode_range_single_value() {
+        assert_eq!(
+            decode_range("2"),
+            (
+                Bound::Included(WrappingSn(2)),
+                Bound::Included(WrappingSn(2))
+            )
+        );
+    }
+
+    // A non-numeric end fails to parse and degrades to `Unbounded` rather than
+    // panicking, so callers receive a half-open range instead of an error.
+    #[test]
+    fn decode_range_malformed_end() {
+        assert_eq!(
+            decode_range("2..abc"),
+            (Bound::Included(WrappingSn(2)), Bound::Unbounded)
+        );
+    }
+
+    // A non-numeric start fails to parse to `Unbounded`; the well-formed end is
+    // still honoured.
+    #[test]
+    fn decode_range_malformed_start() {
+        assert_eq!(
+            decode_range("abc..3"),
+            (Bound::Unbounded, Bound::Included(WrappingSn(3)))
+        );
     }
 }

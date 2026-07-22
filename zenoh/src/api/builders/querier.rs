@@ -27,7 +27,7 @@ use super::sample::QoSBuilderTrait;
 #[cfg(feature = "unstable")]
 use crate::api::cancellation::CancellationTokenBuilderTrait;
 #[cfg(feature = "unstable")]
-use crate::api::sample::{FragInfo, SourceInfo};
+use crate::api::sample::SourceInfo;
 use crate::{
     api::{
         builders::sample::{EncodingBuilderTrait, SampleBuilderTrait},
@@ -299,11 +299,6 @@ impl<Handler> SampleBuilderTrait for QuerierGetBuilder<'_, '_, Handler> {
             source_info: source_info.into(),
             ..self
         }
-    }
-
-    #[zenoh_macros::unstable]
-    fn frag_info<TF: Into<Option<FragInfo>>>(self, _frag_info: TF) -> Self {
-        unimplemented!();
     }
 
     /// Sets an optional attachment to be sent along with the query request.

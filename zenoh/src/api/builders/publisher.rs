@@ -19,6 +19,8 @@ use zenoh_protocol::core::CongestionControl;
 use zenoh_protocol::core::Reliability;
 
 #[cfg(feature = "unstable")]
+use crate::api::builders::sample::FragInfoBuilderTrait;
+#[cfg(feature = "unstable")]
 use crate::api::sample::{FragInfo, SourceInfo};
 use crate::{
     api::{
@@ -226,20 +228,24 @@ impl<P, T> SampleBuilderTrait for PublicationBuilder<P, T> {
             ..self
         }
     }
-    // TODO doc
-    #[cfg(feature = "unstable")]
-    fn frag_info<TF: Into<Option<FragInfo>>>(self, frag_info: TF) -> Self {
-        Self {
-            frag_info: frag_info.into(),
-            ..self
-        }
-    }
     /// Sets an optional attachment to be sent along with the publication.
     /// The method accepts both `Into<ZBytes>` and `Option<Into<ZBytes>>`.
     fn attachment<TA: Into<OptionZBytes>>(self, attachment: TA) -> Self {
         let attachment: OptionZBytes = attachment.into();
         Self {
             attachment: attachment.into(),
+            ..self
+        }
+    }
+}
+
+#[zenoh_macros::internal_trait]
+#[cfg(feature = "unstable")]
+impl<P, T> FragInfoBuilderTrait for PublicationBuilder<P, T> {
+    #[zenoh_macros::unstable]
+    fn frag_info<TF: Into<Option<FragInfo>>>(self, frag_info: TF) -> Self {
+        Self {
+            frag_info: frag_info.into(),
             ..self
         }
     }

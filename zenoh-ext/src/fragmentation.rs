@@ -11,7 +11,7 @@
 // Contributors:
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
-use zenoh::sample::Sample;
+use zenoh::{bytes::ZBytes, sample::Sample};
 
 /// Per-source DoS cap on the number of fragments a single sample may carry.
 ///
@@ -192,12 +192,13 @@ impl FragmentedSample {
                 }
                 let mut iter = frags.into_iter();
                 let first = iter.next()??;
-                let mut bytes: Vec<u8> = first.payload().to_bytes().to_vec();
+                let mut payload = ZBytes::writer();
+                payload.append(first.payload().clone());
                 for frag in iter {
                     let frag = frag?;
-                    bytes.extend(frag.payload().to_bytes().iter());
+                    payload.append(frag.payload().clone());
                 }
-                Some(first.with_payload(bytes))
+                Some(first.with_payload(payload.finish()))
             }
         }
     }
